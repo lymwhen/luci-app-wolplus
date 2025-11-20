@@ -11,13 +11,16 @@ msgid "name"
 msgstr "名称"
 
 msgid "macaddr"
-msgstr "客户端MAC"
+msgstr "MAC 地址"
 
 msgid "maceth"
 msgstr "网络接口"
 
 msgid "awake"
 msgstr "唤醒"
+
+msgid "operation"
+msgstr "操作"
 
 msgid "Please [Save & Apply] your changes first"
 msgstr "请先保存并应用您的设置"
