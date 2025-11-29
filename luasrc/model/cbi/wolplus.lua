@@ -10,7 +10,7 @@ e.addremove = true
 a = e:option(Value, "name", translate("Name"))
 a.optional = false
 ---- mac address
-nolimit_mac = e:option(Value, "macaddr", translate("Mac Address"))
+nolimit_mac = e:option(Value, "macaddr", translate("MAC Address"))
 nolimit_mac.rmempty = false
 i.net.mac_hints(function(e, t) nolimit_mac:value(e, "%s (%s)" % {e, t}) end)
 ----- network interface
