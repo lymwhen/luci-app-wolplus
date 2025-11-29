@@ -7,7 +7,7 @@ msgstr "唤醒你的局域网设备"
 msgid "macclient"
 msgstr "设备列表"
 
-msgid "name"
+msgid "clientname"
 msgstr "名称"
 
 msgid "macaddr"

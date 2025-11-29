@@ -1,25 +1,25 @@
 local i = require "luci.sys"
 local t, e
-t = Map("wolplus", translate("wolplus"), [[<a href="https://github.com/sundaqiang/openwrt-packages" target="_blank">Powered by sundaqiang</a>]])
+t = Map("wolplus", translate("Wake on LAN +"), "Wake-on-LAN remotely starts local computers over Ethernet. " .. [[<a href="https://github.com/sundaqiang/openwrt-packages" target="_blank">Powered by sundaqiang</a>]])
 t.template = "wolplus/index"
-e = t:section(TypedSection, "macclient", translate("macclient"))
+e = t:section(TypedSection, "macclient", translate("Machines"))
 e.template = "cbi/tblsection"
 e.anonymous = true
 e.addremove = true
 ---- add device section
-a = e:option(Value, "name", translate("name"))
+a = e:option(Value, "name", translate("Name"))
 a.optional = false
 ---- mac address
-nolimit_mac = e:option(Value, "macaddr", translate("macaddr"))
+nolimit_mac = e:option(Value, "macaddr", translate("Mac Address"))
 nolimit_mac.rmempty = false
 i.net.mac_hints(function(e, t) nolimit_mac:value(e, "%s (%s)" % {e, t}) end)
 ----- network interface
-nolimit_eth = e:option(Value, "maceth", translate("maceth"))
+nolimit_eth = e:option(Value, "maceth", translate("Network Interface"))
 nolimit_eth.rmempty = false
 for t, e in ipairs(i.net.devices()) do if e ~= "lo" then nolimit_eth:value(e) end end
 ----- wake device
-btn = e:option(Button, "_awake", translate("operation"))
-btn.inputtitle	= translate("awake")
+btn = e:option(Button, "_awake", translate("Operate"))
+btn.inputtitle	= translate("Awake")
 btn.inputstyle	= "apply"
 btn.disabled	= false
 btn.template = "wolplus/awake"
