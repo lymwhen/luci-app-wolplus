@@ -7,10 +7,10 @@ e.template = "cbi/tblsection"
 e.anonymous = true
 e.addremove = true
 ---- add device section
-a = e:option(Value, "name", translate("Name"))
+a = e:option(Value, "name", "Name")
 a.optional = false
 ---- mac address
-nolimit_mac = e:option(Value, "macaddr", translate("MAC Address"))
+nolimit_mac = e:option(Value, "macaddr", "MAC Address")
 nolimit_mac.rmempty = false
 i.net.mac_hints(function(e, t) nolimit_mac:value(e, "%s (%s)" % {e, t}) end)
 ----- network interface
