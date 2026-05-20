@@ -8,8 +8,8 @@ include $(TOPDIR)/rules.mk
 LUCI_TITLE:=LuCI support for wolplus From sundaqiang
 LUCI_DEPENDS:=+etherwake
 LUCI_PKGARCH:=all
-PKG_VERSION:=1.1
-PKG_RELEASE:=20230724
+PKG_VERSION:=2.0
+PKG_RELEASE:=20260520
 PKG_MAINTAINER:=sundaqiang
 
 include $(TOPDIR)/feeds/luci/luci.mk

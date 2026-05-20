@@ -19,6 +19,18 @@ msgstr "网络接口"
 msgid "awake"
 msgstr "唤醒"
 
+msgid "IP Address"
+msgstr "IP 地址"
+
+msgid "Shutdown"
+msgstr "关机"
+
+msgid "Status"
+msgstr "状态"
+
+msgid "Are you sure you want to shutdown this computer?"
+msgstr "确定要远程关闭这台电脑吗？"
+
 msgid "operation"
 msgstr "操作"
 

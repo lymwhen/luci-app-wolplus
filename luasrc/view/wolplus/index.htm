@@ -1,22 +1,173 @@
+<style>
+.status-cell { width: 40px; min-width: 40px; text-align: center; }
+.status-head { width: 40px; min-width: 40px; }
+.status-dot {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	vertical-align: middle;
+}
+.status-online { background-color: #4caf50; }
+.status-offline { background-color: #9e9e9e; }
+.status-waking { background-color: #ff9800; animation: pulse 1.5s infinite; }
+.status-shutting { background-color: #f44336; animation: pulse 1s infinite; }
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
+}
+</style>
 <% include("cbi/map") %>
 <script type="text/javascript">
-	function _id2section(id) {
-		var x = id.split(".");
-		return x[2];
-	}
-	function onclick_awake(id) {
-		var section = _id2section(id);
-		var btnXHR = new XHR();
-		btnXHR.post('<%=url([[admin]], [[services]], [[wolplus]], [[awake]])%>/' + section, { token: '<%=token%>' },
-			function(x, data) {
-				if (x.responseText == "_uncommitted_") {
-					txt="<%:Please [Save & Apply] your changes first%>";
-					alert( txt.replace(new RegExp("<%:&%>", "g"), "&") );
-				} else {
-					alert( JSON.parse(x.response).data );
-				}
-			}
-		);
-	}
-</script>
+var g_waking = {};
+var g_wakingTimer = {};
+var g_statusTimer = null;
 
+function getSections() {
+	var sections = [];
+	var rows = document.querySelectorAll('tr[id^="cbi-wolplus-"]');
+	for (var i = 0; i < rows.length; i++) {
+		var id = rows[i].id;
+		// format: "cbi-wolplus-<section_id>"
+		var prefix = 'cbi-wolplus-';
+		if (id.indexOf(prefix) === 0) {
+			var sec = id.substring(prefix.length);
+			if (sec && sec.indexOf('-add') !== 0) {
+				sections.push(sec);
+			}
+		}
+	}
+	return sections;
+}
+
+function ensureStatusCell(section) {
+	var row = document.getElementById('cbi-wolplus-' + section);
+	if (!row) return null;
+	var cell = row.querySelector('.status-cell');
+	if (!cell) {
+		cell = document.createElement('td');
+		cell.className = 'status-cell';
+		row.appendChild(cell);
+	}
+	return cell;
+}
+
+function setStatus(section, state) {
+	var cell = ensureStatusCell(section);
+	if (!cell) return;
+	var dot = cell.querySelector('.status-dot');
+	if (!dot) {
+		dot = document.createElement('span');
+		dot.className = 'status-dot';
+		cell.appendChild(dot);
+	}
+	dot.className = 'status-dot status-' + state;
+}
+
+function pollStatus(section) {
+	var xhr = new XHR();
+	xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[status]])%>/' + section,
+		{ token: '<%=token%>' },
+		function(x) {
+			try {
+				var r = JSON.parse(x.responseText);
+				if (r.online) {
+					setStatus(section, 'online');
+					if (g_waking[section]) {
+						clearInterval(g_wakingTimer[section]);
+						delete g_waking[section];
+						delete g_wakingTimer[section];
+					}
+				} else {
+					setStatus(section, 'offline');
+				}
+			} catch(e) {
+				setStatus(section, 'offline');
+			}
+		}
+	);
+}
+
+function pollAll() {
+	var sections = getSections();
+	for (var i = 0; i < sections.length; i++) {
+		pollStatus(sections[i]);
+	}
+}
+
+function addStatusHeader() {
+	var tables = document.querySelectorAll('.cbi-section-table');
+	for (var t = 0; t < tables.length; t++) {
+		var thead = tables[t].querySelector('tr:first-child');
+		if (thead && !thead.querySelector('.status-head')) {
+			var th = document.createElement('th');
+			th.className = 'status-head';
+			th.textContent = '<%:Status%>';
+			thead.appendChild(th);
+		}
+	}
+}
+
+function onclick_awake(section) {
+	var xhr = new XHR();
+	xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[awake]])%>/' + section,
+		{ token: '<%=token%>' },
+		function(x) {
+			if (x.responseText === '_uncommitted_') {
+				var txt = '<%:Please [Save & Apply] your changes first%>';
+				alert(txt.replace(new RegExp('<%:&%>', 'g'), '&'));
+			} else {
+				alert(JSON.parse(x.responseText).data);
+				startWaking(section);
+			}
+		}
+	);
+}
+
+function onclick_shutdown(section) {
+	if (!confirm('<%:Are you sure you want to shutdown this computer?%>')) return;
+	var xhr = new XHR();
+	xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[shutdown]])%>/' + section,
+		{ token: '<%=token%>' },
+		function(x) {
+			try {
+				var r = JSON.parse(x.responseText);
+				if (r.success) {
+					setStatus(section, 'shutting');
+					alert(r.message);
+					setTimeout(function() { pollStatus(section); }, 10000);
+				} else {
+					alert(r.message || 'Error');
+				}
+			} catch(e) {
+				alert('Error: no response from agent');
+			}
+		}
+	);
+}
+
+function startWaking(section) {
+	g_waking[section] = true;
+	setStatus(section, 'waking');
+	var count = 0;
+	if (g_wakingTimer[section]) clearInterval(g_wakingTimer[section]);
+	g_wakingTimer[section] = setInterval(function() {
+		pollStatus(section);
+		count++;
+		if (count >= 24 || !g_waking[section]) {
+			clearInterval(g_wakingTimer[section]);
+			delete g_waking[section];
+			delete g_wakingTimer[section];
+			if (count >= 24) setStatus(section, 'offline');
+		}
+	}, 5000);
+}
+
+window.addEventListener('load', function() {
+	setTimeout(function() {
+		addStatusHeader();
+		pollAll();
+	}, 500);
+	g_statusTimer = setInterval(pollAll, 30000);
+});
+</script>

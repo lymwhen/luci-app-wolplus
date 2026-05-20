@@ -17,6 +17,10 @@ i.net.mac_hints(function(e, t) nolimit_mac:value(e, "%s (%s)" % {e, t}) end)
 nolimit_eth = e:option(Value, "maceth", translate("Network Interface"))
 nolimit_eth.rmempty = false
 for t, e in ipairs(i.net.devices()) do if e ~= "lo" then nolimit_eth:value(e) end end
+----- ip address
+nolimit_ip = e:option(Value, "ipaddr", translate("IP Address"))
+nolimit_ip.rmempty = true
+nolimit_ip.datatype = "ipaddr"
 ----- wake device
 btn = e:option(Button, "_awake", translate("Operate"))
 btn.inputtitle	= translate("Awake")
