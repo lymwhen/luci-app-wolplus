@@ -82,6 +82,27 @@ msgstr "确定要删除这台设备吗？"
 msgid "No devices configured. Click \"+ Add Device\" to get started."
 msgstr "暂无设备，点击「+ 添加设备」开始使用。"
 
+msgid "Install Windows Agent"
+msgstr "安装 Windows Agent"
+
+msgid "Install the Windows Agent on target PCs to enable online status detection and remote shutdown."
+msgstr "在目标电脑上安装 Windows Agent，以实现在线状态检测和远程关机功能。"
+
+msgid "Download wol-agent.exe"
+msgstr "下载 wol-agent.exe"
+
+msgid "Installation steps:"
+msgstr "安装步骤："
+
+msgid "Download nssm from"
+msgstr "下载 nssm："
+
+msgid "Run the following commands as Administrator:"
+msgstr "以管理员身份运行以下命令："
+
+msgid "Agent listens on port 32249 by default. No additional configuration required."
+msgstr "Agent 默认监听端口 32249，无需额外配置。"
+
 msgid "operation"
 msgstr "操作"
 

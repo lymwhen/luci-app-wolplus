@@ -69,11 +69,41 @@ end
 .md-add-header.open .md-add-toggle { transform: rotate(180deg); }
 .md-add-body { display: none; padding: 16px; }
 .md-add-body.open { display: block; }
+
+/* === Agent section === */
+.md-agent-section { margin-bottom: 12px; }
+.md-agent-header {
+    display: flex; align-items: center; padding: 10px 12px;
+    cursor: pointer; user-select: none;
+    background: #e3f2fd; border-radius: 8px;
+    transition: background .15s;
+}
+.md-agent-header:hover { background: #bbdefb; }
+.md-agent-icon { font-size: 16px; margin-right: 8px; color: #1565c0; }
+.md-agent-title { font-size: 14px; font-weight: 500; color: #1565c0; }
+.md-agent-toggle { margin-left: auto; font-size: 12px; color: #1565c0; transition: transform .2s; }
+.md-agent-header.open .md-agent-toggle { transform: rotate(180deg); }
+.md-agent-body { display: none; padding: 12px; font-size: 13px; color: #616161; line-height: 1.6; }
+.md-agent-body.open { display: block; }
+.md-agent-body p { margin: 0 0 8px; }
+.md-agent-body ol { margin: 0 0 8px; padding-left: 20px; }
+.md-agent-body ol li { margin-bottom: 4px; }
+.md-agent-body pre {
+    background: #f5f5f5; color: #616161; padding: 12px; border-radius: 6px;
+    font-size: 12px; line-height: 1.5; overflow-x: auto; margin: 8px 0;
+    border: 1px solid #e0e0e0;
+}
+.md-agent-download {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 6px; text-decoration: none;
+    font-size: 13px; font-weight: 500; margin: 8px 0;
+}
+.md-agent-divider { border-top: 1px solid #e0e0e0; margin: 12px 0 4px; }
 .md-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .md-form-grid .md-field.full { grid-column: 1 / -1; }
 .md-field label { display: block; font-size: 12px; font-weight: 500; color: #757575; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
 .md-field input, .md-field select {
-    width: 100%; padding: 10px 12px; font-size: 14px; line-height: 1.4;
+    width: 100%; padding: 10px 12px; font-size: 14px; line-height: 0.9;
     border: 1px solid #e0e0e0; border-radius: 6px; outline: none;
     background: #fff; transition: border-color .2s, box-shadow .2s;
 }
@@ -181,6 +211,30 @@ end
             <span class="md-add-toggle" id="add-toggle">&#9660;</span>
         </div>
         <div class="md-add-body" id="add-body">
+            <div class="md-agent-section">
+                <div class="md-agent-header" id="agent-header" onclick="toggleAgent()">
+                    <span class="md-agent-icon"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="2" y="2" width="8.5" height="8.5" rx="1"/><rect x="13.5" y="2" width="8.5" height="8.5" rx="1"/><rect x="2" y="13.5" width="8.5" height="8.5" rx="1"/><rect x="13.5" y="13.5" width="8.5" height="8.5" rx="1"/></svg></span>
+                    <span class="md-agent-title"><%:Install Windows Agent%></span>
+                    <span class="md-agent-toggle" id="agent-toggle">&#9660;</span>
+                </div>
+                <div class="md-agent-body" id="agent-body">
+                    <p><%:Install the Windows Agent on target PCs to enable online status detection and remote shutdown.%></p>
+                    <a class="md-agent-download" href="https://raw.githubusercontent.com/lymwhen/luci-app-wolplus/main/wol-agent/wol-agent.exe" download>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        <%:Download wol-agent.exe%> (~1.5 MB)
+                    </a>
+                    <p><%:Installation steps:%></p>
+                    <ol>
+                        <li><%:Download nssm from%> <a href="https://nssm.cc/download" target="_blank">nssm.cc</a></li>
+                        <li><%:Run the following commands as Administrator:%></li>
+                    </ol>
+                    <pre>nssm install WolAgent "C:\path\to\wol-agent.exe"
+nssm set WolAgent Start SERVICE_AUTO_START
+nssm start WolAgent</pre>
+                    <p><%:Agent listens on port 32249 by default. No additional configuration required.%></p>
+                </div>
+            </div>
+            <div class="md-agent-divider"></div>
             <div class="md-form-grid">
                 <div class="md-field">
                     <label><%:Name%></label>
@@ -300,6 +354,13 @@ function toggleAdd() {
     var open = body.classList.toggle('open');
     hdr.classList.toggle('open', open);
     if (open) document.getElementById('f-name').focus();
+}
+
+function toggleAgent() {
+    var body = document.getElementById('agent-body');
+    var hdr  = document.getElementById('agent-header');
+    var open = body.classList.toggle('open');
+    hdr.classList.toggle('open', open);
 }
 
 function setDot(section, state) {

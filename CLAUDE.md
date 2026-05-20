@@ -106,6 +106,8 @@ nssm start WolAgent
 ┌──────────────────────────────────────────────┐
 │  + 添加设备                            ▼     │  ← 折叠表单卡片
 │  ┌──────────────────────────────────────────┐│
+│  │ 💻 安装 Windows Agent            [展开] ││  ← 表单内嵌，默认折叠
+│  │ ─────────────────────────────────────── ││
 │  │ Name: [____]  MAC: [Quick pick ▼]       ││
 │  │ Interface: [▼]  IP: [Quick pick ▼]      ││
 │  │                     [取消] [添加]        ││
@@ -128,19 +130,30 @@ nssm start WolAgent
 - **无外部依赖**：所有 CSS 内联，图标使用内联 SVG（不依赖字体或 CDN）
 - **响应式**：默认单列，≥700px 双列网格；≤520px 表单单列 + 按钮换行
 - **折叠表单**：默认隐藏，点击标题展开/收起，与卡片列表分离
+- **表单内嵌 Agent 说明**：表单顶部折叠区，展开后展示 Windows Agent 下载按钮 + nssm 安装命令
 - **彩色状态点**：🟢 在线 / ⚪ 离线 / 🟠 开机中闪烁 / 🔴 关机中闪烁
 - **彩色图标按钮**：唤醒绿色(#388e3c)、关机红色(#c62828)、删除灰色(#9e9e9e)
 - **Toast 提示**：底部居中黑底白字，2.5s 自动消失
+- **Luci 主题色**：下载按钮等交互元素使用 CSS 变量 `var(--primary)`，自动跟随 Luci 主题
 
 ### 图标
 
-三枚 Feather Icons 风格内联 SVG，`viewBox="0 0 24 24"`，使用 `currentColor` 自动匹配按钮颜色：
+四枚 Feather Icons 风格内联 SVG，`viewBox="0 0 24 24"`，使用 `currentColor` 自动匹配按钮颜色：
 
 - **唤醒** — 闪电形状 `<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`
 - **关机** — 电源符号（圆弧+竖线）
 - **删除** — X 形交叉线
+- **Windows 徽标** — 四格窗口 `<rect>` x4（Agent 安装入口图标）
 
 SVG 内联方式避免了 emoji 跨平台渲染差异和字体依赖问题。
+
+### Agent 下载
+
+Agent 安装入口位于「添加设备」表单顶部，默认折叠。展开后显示：
+
+- **下载按钮**：指向 GitHub raw URL（`https://raw.githubusercontent.com/<user>/<repo>/main/wol-agent/wol-agent.exe`），不内置在 ipk 中以保持包体轻量
+- **nssm 命令**：浅色代码块（`#f5f5f5` 背景、`#616161` 灰字）
+- 下载按钮无背景无边框，文字颜色由 Luci 主题 CSS 变量 `var(--primary)` 控制
 
 ## 状态检测与轮询逻辑
 
@@ -185,6 +198,13 @@ CBI 的 `tblsection` 表格渲染无法满足 Material Design 卡片布局需求
 - `<select>` 在移动端有原生下拉 UI，兼容性最好
 - 保留 `<input>` 允许手动输入不在列表中的值
 - select 选中后自动填入 input，表单提交实际读取 input 值
+
+### 为什么 Agent 下载放在表单顶部 + GitHub 外链
+
+- Agent 是设备功能的前提，放在表单顶部符合「先装 Agent 再加设备」的心智模型
+- 默认折叠，不影响表单简洁性，需要时展开
+- 使用 GitHub raw URL 而非内置 exe，保持 ipk 轻量（~30KB）
+- Agent 更新无需更新 Luci 包，推送 GitHub 即可
 
 ## 常见问题与解决方案
 
@@ -243,6 +263,12 @@ XHR.prototype.post = function(url, data, callback) {
 **现象**：卡片间距过大或与 Add Device 卡片间距不一致。
 **原因**：CSS Grid `gap` 与 `.md-card` 的 `margin-bottom` 叠加。
 **解决**：Grid 容器内的卡片去掉 `margin-bottom`，仅靠 grid `gap` 控制；Grid 外的 `.md-add-card` 单独设置 `margin-bottom`。
+
+### 7. Luci 主题色覆盖链接样式
+
+**现象**：自定义 `<a>` 标签的颜色在 Luci 页面上被覆盖为主题色。
+**原因**：Luci 全局 CSS 使用 `var(--primary)` 为链接设置颜色，优先级高于内联样式。
+**解决**：Agent 下载按钮不设置 `background` 和 `border`，作为纯文字链接，让 Luci 主题自然控制颜色。按钮仅保留 `padding` + `border-radius` 作为点击区域。
 
 ## 部署清单
 
