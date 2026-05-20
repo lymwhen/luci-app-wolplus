@@ -536,15 +536,16 @@ function pollOne(section) {
             try {
                 var r = JSON.parse(x.responseText);
                 if (r.online) {
+                    if (g_shutting[section]) return;  // 关机中忽略在线
                     setDot(section, 'online');
                     clearWaking(section);
-                    clearShutting(section);
                 } else {
-                    if (!g_waking[section] && !g_shutting[section]) {
-                        setDot(section, 'offline');
-                    }
+                    if (g_shutting[section]) clearShutting(section);
+                    if (g_waking[section]) return;    // 开机中忽略离线
+                    setDot(section, 'offline');
                 }
             } catch(e) {
+                if (g_shutting[section]) clearShutting(section);
                 if (!g_waking[section] && !g_shutting[section]) {
                     setDot(section, 'offline');
                 }
