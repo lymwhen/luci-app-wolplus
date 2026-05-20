@@ -6,7 +6,7 @@
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for wolplus From sundaqiang
-LUCI_DEPENDS:=+etherwake
+LUCI_DEPENDS:=+etherwake +curl
 LUCI_PKGARCH:=all
 PKG_VERSION:=2.0
 PKG_RELEASE:=20260520

@@ -1,173 +1,566 @@
+<%
+local uci = luci.model.uci.cursor()
+local sys = require "luci.sys"
+
+local devices = {}
+uci:foreach("wolplus", "macclient", function(s)
+    if s.name then
+        devices[#devices + 1] = {
+            section = s['.name'],
+            name = s.name,
+            macaddr = s.macaddr or "",
+            maceth = s.maceth or "",
+            ipaddr = s.ipaddr or ""
+        }
+    end
+end)
+
+local mac_hints = {}
+sys.net.mac_hints(function(mac, desc)
+    mac_hints[#mac_hints + 1] = {mac = mac, desc = desc}
+end)
+
+local ip_hints = {}
+local f = io.open("/tmp/dhcp.leases")
+if f then
+    local seen = {}
+    for line in f:lines() do
+        local _, mac, ip = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+        if mac and ip and not seen[ip] then
+            seen[ip] = true
+            ip_hints[#ip_hints + 1] = {mac = mac:upper(), ip = ip}
+        end
+    end
+    f:close()
+end
+
+local interfaces = {}
+for _, dev in ipairs(sys.net.devices()) do
+    if dev ~= "lo" then interfaces[#interfaces + 1] = dev end
+end
+%>
+<%+header%>
 <style>
-.status-cell { width: 40px; min-width: 40px; text-align: center; }
-.status-head { width: 40px; min-width: 40px; }
+/* === Reset & Base === */
+.md-app { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #212121; }
+.md-app *, .md-app *::before, .md-app *::after { box-sizing: border-box; }
+
+/* === Card common === */
+.md-card {
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.08);
+    overflow: hidden;
+    transition: box-shadow .2s;
+}
+.md-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.15), 0 2px 4px rgba(0,0,0,.1); }
+
+/* === Add form card === */
+.md-add-card { background: #fafafa; margin-bottom: 12px; }
+.md-add-header {
+    display: flex; align-items: center; padding: 14px 16px;
+    cursor: pointer; user-select: none; border-bottom: 1px solid transparent;
+    transition: background .15s;
+}
+.md-add-header:hover { background: #f0f0f0; }
+.md-add-header.open { border-bottom-color: #e0e0e0; }
+.md-add-icon { font-size: 18px; color: #1976d2; margin-right: 8px; }
+.md-add-title { font-size: 15px; font-weight: 500; color: #1976d2; }
+.md-add-toggle { margin-left: auto; font-size: 12px; color: #757575; transition: transform .2s; }
+.md-add-header.open .md-add-toggle { transform: rotate(180deg); }
+.md-add-body { display: none; padding: 16px; }
+.md-add-body.open { display: block; }
+.md-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.md-form-grid .md-field.full { grid-column: 1 / -1; }
+.md-field label { display: block; font-size: 12px; font-weight: 500; color: #757575; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+.md-field input, .md-field select {
+    width: 100%; padding: 10px 12px; font-size: 14px; line-height: 1.4;
+    border: 1px solid #e0e0e0; border-radius: 6px; outline: none;
+    background: #fff; transition: border-color .2s, box-shadow .2s;
+}
+.md-field .md-quick-pick {
+    margin-bottom: 4px; padding: 6px 8px; font-size: 13px; line-height: 1.3;
+    color: #616161; background: #f5f5f5; border-color: #e0e0e0;
+}
+.md-field input:focus, .md-field select:focus {
+    border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,.15);
+}
+.md-add-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; padding-top: 12px; border-top: 1px solid #e0e0e0; }
+
+/* === Buttons === */
+.md-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 8px 20px; font-size: 14px; font-weight: 500;
+    border: none; border-radius: 6px; cursor: pointer;
+    transition: background .15s, box-shadow .15s; outline: none;
+    text-decoration: none; line-height: 1.5;
+}
+.md-btn--primary { background: #1976d2; color: #fff; }
+.md-btn--primary:hover { background: #1565c0; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+.md-btn--flat { background: transparent; color: #616161; }
+.md-btn--flat:hover { background: rgba(0,0,0,.06); }
+.md-btn--flat.danger { color: #c62828; }
+.md-btn--flat.danger:hover { background: rgba(198,40,40,.08); }
+
+/* === Device card === */
+.md-device-card { display: flex; align-items: center; padding: 14px 16px; }
+.md-device-card .md-status { flex-shrink: 0; margin-right: 14px; }
+.md-device-card .md-info { flex: 1; min-width: 0; }
+.md-device-card .md-name { font-size: 15px; font-weight: 500; color: #212121; line-height: 1.4; }
+.md-device-card .md-sub { font-size: 13px; color: #757575; line-height: 1.4; margin-top: 2px; }
+.md-device-card .md-actions { flex-shrink: 0; display: flex; gap: 4px; margin-left: 8px; }
+.md-icon-btn {
+    width: 38px; height: 38px; border: none; background: transparent;
+    border-radius: 50%; cursor: pointer; display: flex; align-items: center;
+    justify-content: center; color: #616161;
+    transition: background .15s, color .15s; outline: none;
+}
+.md-icon-btn:hover { background: rgba(0,0,0,.06); }
+.md-icon-btn.wake { color: #388e3c; }
+.md-icon-btn.shutdown { color: #c62828; }
+.md-icon-btn.delete { color: #9e9e9e; }
+.md-icon-btn.wake:hover { background: rgba(76,175,80,.12); }
+.md-icon-btn.shutdown:hover { background: rgba(244,67,54,.1); }
+.md-icon-btn.delete:hover { background: rgba(158,158,158,.15); color: #616161; }
+
+/* === CSS power icon (for shutdown button) === */
+/* === Device list grid === */
+#device-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+@media (min-width: 700px) {
+    #device-list { grid-template-columns: 1fr 1fr; }
+    #device-list .md-empty { grid-column: 1 / -1; }
+}
+
+/* === SVG icons === */
+.md-icon-btn svg { display: block; }
+
+/* === Status dot === */
 .status-dot {
-	display: inline-block;
-	width: 12px;
-	height: 12px;
-	border-radius: 50%;
-	vertical-align: middle;
+    display: block; width: 14px; height: 14px; border-radius: 50%;
+    transition: background-color .3s;
 }
 .status-online { background-color: #4caf50; }
-.status-offline { background-color: #9e9e9e; }
-.status-waking { background-color: #ff9800; animation: pulse 1.5s infinite; }
-.status-shutting { background-color: #f44336; animation: pulse 1s infinite; }
-@keyframes pulse {
-	0%, 100% { opacity: 1; }
-	50% { opacity: 0.3; }
+.status-offline { background-color: #bdbdbd; }
+.status-waking { background-color: #ff9800; animation: md-pulse 1.5s infinite; }
+.status-shutting { background-color: #e53935; animation: md-pulse 1s infinite; }
+@keyframes md-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .3; }
+}
+
+/* === Empty state === */
+.md-empty { text-align: center; padding: 48px 16px; color: #9e9e9e; }
+.md-empty-icon { font-size: 48px; margin-bottom: 12px; }
+.md-empty-text { font-size: 14px; }
+
+/* === Error / toasts === */
+.md-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #323232; color: #fff; padding: 10px 24px; border-radius: 6px;
+    font-size: 13px; z-index: 999; opacity: 0; transition: opacity .3s;
+    pointer-events: none;
+}
+.md-toast.show { opacity: 1; }
+
+/* === Responsive === */
+@media (max-width: 520px) {
+    .md-form-grid { grid-template-columns: 1fr; }
+    .md-device-card { flex-wrap: wrap; }
+    .md-device-card .md-actions { width: 100%; justify-content: flex-end; margin-top: 8px; margin-left: 0; }
 }
 </style>
-<% include("cbi/map") %>
-<script type="text/javascript">
-var g_waking = {};
-var g_wakingTimer = {};
-var g_statusTimer = null;
 
-function getSections() {
-	var sections = [];
-	var rows = document.querySelectorAll('tr[id^="cbi-wolplus-"]');
-	for (var i = 0; i < rows.length; i++) {
-		var id = rows[i].id;
-		// format: "cbi-wolplus-<section_id>"
-		var prefix = 'cbi-wolplus-';
-		if (id.indexOf(prefix) === 0) {
-			var sec = id.substring(prefix.length);
-			if (sec && sec.indexOf('-add') !== 0) {
-				sections.push(sec);
-			}
-		}
-	}
-	return sections;
+<div class="md-app">
+    <div class="md-card md-add-card">
+        <div class="md-add-header" id="add-header" onclick="toggleAdd()">
+            <span class="md-add-icon">+</span>
+            <span class="md-add-title"><%:Add Device%></span>
+            <span class="md-add-toggle" id="add-toggle">&#9660;</span>
+        </div>
+        <div class="md-add-body" id="add-body">
+            <div class="md-form-grid">
+                <div class="md-field">
+                    <label><%:Name%></label>
+                    <input type="text" id="f-name" placeholder="<%:Device name%>" autocomplete="off">
+                </div>
+                <div class="md-field">
+                    <label><%:MAC Address%></label>
+                    <% if #mac_hints > 0 then %>
+                    <select class="md-quick-pick" onchange="if(this.value){document.getElementById('f-mac').value=this.value;this.selectedIndex=0}">
+                        <option value="">-- <%:Quick pick%> --</option>
+                        <% for _, h in ipairs(mac_hints) do %>
+                        <option value="<%=h.mac%>"><%=h.mac%> — <%=h.desc%></option>
+                        <% end %>
+                    </select>
+                    <% end %>
+                    <input type="text" id="f-mac" placeholder="AA:BB:CC:DD:EE:FF" autocomplete="off">
+                </div>
+                <div class="md-field">
+                    <label><%:Network Interface%></label>
+                    <select id="f-eth">
+                        <option value="">-- <%:Select%> --</option>
+                        <% for _, iface in ipairs(interfaces) do %>
+                        <option value="<%=iface%>"><%=iface%></option>
+                        <% end %>
+                    </select>
+                </div>
+                <div class="md-field">
+                    <label><%:IP Address%></label>
+                    <% if #ip_hints > 0 then %>
+                    <select class="md-quick-pick" onchange="if(this.value){document.getElementById('f-ip').value=this.value;this.selectedIndex=0}">
+                        <option value="">-- <%:Quick pick%> --</option>
+                        <% for _, h in ipairs(ip_hints) do %>
+                        <option value="<%=h.ip%>"><%=h.ip%> — <%=h.mac%></option>
+                        <% end %>
+                    </select>
+                    <% end %>
+                    <input type="text" id="f-ip" placeholder="192.168.1.100" autocomplete="off">
+                </div>
+            </div>
+            <div class="md-add-actions">
+                <button type="button" class="md-btn md-btn--flat" onclick="toggleAdd()"><%:Cancel%></button>
+                <button type="button" class="md-btn md-btn--primary" id="btn-add-device" onclick="doAdd()"><%:Add%></button>
+            </div>
+        </div>
+    </div>
+
+    <div id="device-list">
+        <% if #devices == 0 then %>
+        <div class="md-card md-empty" id="empty-state">
+            <div class="md-empty-icon">&#128267;</div>
+            <div class="md-empty-text"><%:No devices configured. Click "+ Add Device" to get started.%></div>
+        </div>
+        <% end %>
+        <% for _, d in ipairs(devices) do %>
+        <div class="md-card md-device-card" id="card-<%=d.section%>" data-section="<%=d.section%>">
+            <div class="md-status">
+                <span class="status-dot status-offline" id="dot-<%=d.section%>"></span>
+            </div>
+            <div class="md-info">
+                <div class="md-name"><%=luci.util.pcdata(d.name)%></div>
+                <div class="md-sub"><%=d.ipaddr ~= "" and luci.util.pcdata(d.ipaddr) or "—"%></div>
+            </div>
+            <div class="md-actions">
+                <button class="md-icon-btn wake" title="<%:Wake up%>" onclick="doAwake(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>
+                <button class="md-icon-btn shutdown" title="<%:Shutdown%>" onclick="doShutdown(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><line x1="12" y1="2" x2="12" y2="10"/></svg></button>
+                <button class="md-icon-btn delete" title="<%:Delete%>" onclick="doDelete(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+        </div>
+        <% end %>
+    </div>
+</div>
+
+<div class="md-toast" id="toast"></div>
+
+<script>
+// XHR shim — template pages don't load cbi.js
+function XHR() {}
+XHR.prototype.post = function(url, data, callback) {
+    if (url.indexOf('token=') === -1) {
+        url += (url.indexOf('?') === -1 ? '?' : '&') + 'token=' + encodeURIComponent(token);
+    }
+    var x = new XMLHttpRequest();
+    x.open('POST', url, true);
+    if (data && typeof data === 'object') {
+        x.setRequestHeader('Content-Type', 'application/json');
+        data = JSON.stringify(data);
+    } else if (typeof data === 'string') {
+        x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    }
+    x.onload = function() { callback(x); };
+    x.onerror = function() { callback(x); };
+    x.send(data || null);
+};
+var token = '<%=token%>';
+var statusUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[status_all]])%>';
+var awakeUrl  = '<%=url([[admin]], [[services]], [[wolplus]], [[awake]])%>';
+var shutdownUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[shutdown]])%>';
+var addUrl    = '<%=url([[admin]], [[services]], [[wolplus]], [[add]])%>';
+var deleteUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[delete]])%>';
+var g_waking = {};      // section -> true
+var g_shutting = {};    // section -> true
+var g_wakeTimer = {};
+var g_shutTimer = {};
+var g_pollTimer = null;
+
+function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._tid);
+    t._tid = setTimeout(function() { t.classList.remove('show'); }, 2500);
 }
 
-function ensureStatusCell(section) {
-	var row = document.getElementById('cbi-wolplus-' + section);
-	if (!row) return null;
-	var cell = row.querySelector('.status-cell');
-	if (!cell) {
-		cell = document.createElement('td');
-		cell.className = 'status-cell';
-		row.appendChild(cell);
-	}
-	return cell;
+function toggleAdd() {
+    var body = document.getElementById('add-body');
+    var hdr  = document.getElementById('add-header');
+    var open = body.classList.toggle('open');
+    hdr.classList.toggle('open', open);
+    if (open) document.getElementById('f-name').focus();
 }
 
-function setStatus(section, state) {
-	var cell = ensureStatusCell(section);
-	if (!cell) return;
-	var dot = cell.querySelector('.status-dot');
-	if (!dot) {
-		dot = document.createElement('span');
-		dot.className = 'status-dot';
-		cell.appendChild(dot);
-	}
-	dot.className = 'status-dot status-' + state;
+function setDot(section, state) {
+    var dot = document.getElementById('dot-' + section);
+    if (dot) dot.className = 'status-dot status-' + state;
 }
 
-function pollStatus(section) {
-	var xhr = new XHR();
-	xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[status]])%>/' + section,
-		{ token: '<%=token%>' },
-		function(x) {
-			try {
-				var r = JSON.parse(x.responseText);
-				if (r.online) {
-					setStatus(section, 'online');
-					if (g_waking[section]) {
-						clearInterval(g_wakingTimer[section]);
-						delete g_waking[section];
-						delete g_wakingTimer[section];
-					}
-				} else {
-					setStatus(section, 'offline');
-				}
-			} catch(e) {
-				setStatus(section, 'offline');
-			}
-		}
-	);
+function doAwake(btn) {
+    var section = btn.getAttribute('data-section');
+    var xhr = new XHR();
+    xhr.post(awakeUrl + '/' + section, { token: token }, function(x) {
+        try {
+            var r = JSON.parse(x.responseText);
+            toast(r.data || 'Wake packet sent');
+        } catch(e) {
+            toast('Wake packet sent');
+        }
+        startWaking(section);
+    });
+}
+
+function doShutdown(btn) {
+    var section = btn.getAttribute('data-section');
+    if (!confirm('<%:Are you sure you want to shutdown this computer?%>')) return;
+    var xhr = new XHR();
+    xhr.post(shutdownUrl + '/' + section, { token: token }, function(x) {
+        try {
+            var r = JSON.parse(x.responseText);
+            if (r.success) {
+                toast(r.message);
+                startShutting(section);
+            } else {
+                toast(r.message || 'Error');
+            }
+        } catch(e) {
+            toast('Error: no response');
+        }
+    });
+}
+
+function doDelete(btn) {
+    var section = btn.getAttribute('data-section');
+    if (!confirm('<%:Are you sure you want to delete this device?%>')) return;
+    var xhr = new XHR();
+    xhr.post(deleteUrl + '/' + section, { token: token }, function(x) {
+        try {
+            var r = JSON.parse(x.responseText);
+            if (r.success) {
+                removeCard(section);
+                toast('<%:Device deleted%>');
+            } else {
+                toast(r.message || 'Error');
+            }
+        } catch(e) {
+            toast('Error');
+        }
+    });
+}
+
+function removeCard(section) {
+    var card = document.getElementById('card-' + section);
+    if (card) {
+        card.style.transition = 'opacity .2s, transform .2s';
+        card.style.opacity = '0';
+        card.style.transform = 'scale(0.95)';
+        setTimeout(function() {
+            card.remove();
+            checkEmpty();
+        }, 200);
+    }
+    if (g_waking[section]) {
+        clearInterval(g_wakeTimer[section]);
+        delete g_waking[section];
+        delete g_wakeTimer[section];
+    }
+    if (g_shutting[section]) {
+        clearInterval(g_shutTimer[section]);
+        delete g_shutting[section];
+        delete g_shutTimer[section];
+    }
+}
+
+function checkEmpty() {
+    var list = document.getElementById('device-list');
+    if (!list.querySelector('.md-device-card')) {
+        list.innerHTML = '<div class="md-card md-empty" id="empty-state">' +
+            '<div class="md-empty-icon">&#128267;</div>' +
+            '<div class="md-empty-text"><%:No devices configured. Click "+ Add Device" to get started.%></div>' +
+            '</div>';
+    }
+}
+
+function doAdd() {
+    var name = document.getElementById('f-name').value.trim();
+    var mac  = document.getElementById('f-mac').value.trim();
+    var eth  = document.getElementById('f-eth').value;
+    var ip   = document.getElementById('f-ip').value.trim();
+
+    if (!name) { toast('<%:Name is required%>'); return; }
+    if (!mac)  { toast('<%:MAC address is required%>'); return; }
+    if (!eth)  { toast('<%:Network interface is required%>'); return; }
+
+    var formData = 'name=' + encodeURIComponent(name)
+        + '&macaddr=' + encodeURIComponent(mac)
+        + '&maceth=' + encodeURIComponent(eth)
+        + '&ipaddr=' + encodeURIComponent(ip)
+        + '&token=' + encodeURIComponent(token);
+
+    var xhr = new XHR();
+    xhr.post(addUrl + '?' + formData, null, function(x) {
+        try {
+            var r = JSON.parse(x.responseText);
+            if (r.success) {
+                addCard(r.section, r.name, r.ipaddr || '');
+                document.getElementById('f-name').value = '';
+                document.getElementById('f-mac').value = '';
+                document.getElementById('f-ip').value = '';
+                toggleAdd();
+                toast('<%:Device added%>');
+                pollOne(r.section);
+            } else {
+                toast(r.message || 'Error');
+            }
+        } catch(e) {
+            toast('Error');
+        }
+    });
+}
+
+function addCard(section, name, ip) {
+    var empty = document.getElementById('empty-state');
+    if (empty) empty.remove();
+
+    var card = document.createElement('div');
+    card.className = 'md-card md-device-card';
+    card.id = 'card-' + section;
+    card.setAttribute('data-section', section);
+    card.innerHTML =
+        '<div class="md-status">' +
+        '<span class="status-dot status-offline" id="dot-' + section + '"></span>' +
+        '</div>' +
+        '<div class="md-info">' +
+        '<div class="md-name">' + escHtml(name) + '</div>' +
+        '<div class="md-sub">' + (ip ? escHtml(ip) : '—') + '</div>' +
+        '</div>' +
+        '<div class="md-actions">' +
+        '<button class="md-icon-btn wake" title="<%:Wake up%>" onclick="doAwake(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>' +
+        '<button class="md-icon-btn shutdown" title="<%:Shutdown%>" onclick="doShutdown(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><line x1="12" y1="2" x2="12" y2="10"/></svg></button>' +
+        '<button class="md-icon-btn delete" title="<%:Delete%>" onclick="doDelete(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
+        '</div>';
+
+    document.getElementById('device-list').appendChild(card);
+    card.style.transition = 'opacity .2s, transform .2s';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.95)';
+    requestAnimationFrame(function() {
+        card.style.opacity = '1';
+        card.style.transform = 'scale(1)';
+    });
+}
+
+function escHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+function pollOne(section) {
+    var xhr = new XHR();
+    xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[status]])%>/' + section,
+        { token: token },
+        function(x) {
+            try {
+                var r = JSON.parse(x.responseText);
+                if (r.online) {
+                    setDot(section, 'online');
+                    clearWaking(section);
+                    clearShutting(section);
+                } else {
+                    if (!g_waking[section] && !g_shutting[section]) {
+                        setDot(section, 'offline');
+                    }
+                }
+            } catch(e) {
+                if (!g_waking[section] && !g_shutting[section]) {
+                    setDot(section, 'offline');
+                }
+            }
+        }
+    );
 }
 
 function pollAll() {
-	var sections = getSections();
-	for (var i = 0; i < sections.length; i++) {
-		pollStatus(sections[i]);
-	}
-}
-
-function addStatusHeader() {
-	var tables = document.querySelectorAll('.cbi-section-table');
-	for (var t = 0; t < tables.length; t++) {
-		var thead = tables[t].querySelector('tr:first-child');
-		if (thead && !thead.querySelector('.status-head')) {
-			var th = document.createElement('th');
-			th.className = 'status-head';
-			th.textContent = '<%:Status%>';
-			thead.appendChild(th);
-		}
-	}
-}
-
-function onclick_awake(section) {
-	var xhr = new XHR();
-	xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[awake]])%>/' + section,
-		{ token: '<%=token%>' },
-		function(x) {
-			if (x.responseText === '_uncommitted_') {
-				var txt = '<%:Please [Save & Apply] your changes first%>';
-				alert(txt.replace(new RegExp('<%:&%>', 'g'), '&'));
-			} else {
-				alert(JSON.parse(x.responseText).data);
-				startWaking(section);
-			}
-		}
-	);
-}
-
-function onclick_shutdown(section) {
-	if (!confirm('<%:Are you sure you want to shutdown this computer?%>')) return;
-	var xhr = new XHR();
-	xhr.post('<%=url([[admin]], [[services]], [[wolplus]], [[shutdown]])%>/' + section,
-		{ token: '<%=token%>' },
-		function(x) {
-			try {
-				var r = JSON.parse(x.responseText);
-				if (r.success) {
-					setStatus(section, 'shutting');
-					alert(r.message);
-					setTimeout(function() { pollStatus(section); }, 10000);
-				} else {
-					alert(r.message || 'Error');
-				}
-			} catch(e) {
-				alert('Error: no response from agent');
-			}
-		}
-	);
+    var cards = document.querySelectorAll('.md-device-card');
+    for (var i = 0; i < cards.length; i++) {
+        pollOne(cards[i].getAttribute('data-section'));
+    }
 }
 
 function startWaking(section) {
-	g_waking[section] = true;
-	setStatus(section, 'waking');
-	var count = 0;
-	if (g_wakingTimer[section]) clearInterval(g_wakingTimer[section]);
-	g_wakingTimer[section] = setInterval(function() {
-		pollStatus(section);
-		count++;
-		if (count >= 24 || !g_waking[section]) {
-			clearInterval(g_wakingTimer[section]);
-			delete g_waking[section];
-			delete g_wakingTimer[section];
-			if (count >= 24) setStatus(section, 'offline');
-		}
-	}, 5000);
+    g_waking[section] = true;
+    setDot(section, 'waking');
+    var count = 0;
+    if (g_wakeTimer[section]) clearInterval(g_wakeTimer[section]);
+    g_wakeTimer[section] = setInterval(function() {
+        pollOne(section);
+        count++;
+        if (count >= 12) {  // 12 * 5s = 60s
+            clearInterval(g_wakeTimer[section]);
+            delete g_wakeTimer[section];
+            if (g_waking[section]) {
+                delete g_waking[section];
+                setDot(section, 'offline');
+            }
+        }
+    }, 5000);
 }
 
+function clearWaking(section) {
+    if (g_waking[section]) {
+        delete g_waking[section];
+        if (g_wakeTimer[section]) {
+            clearInterval(g_wakeTimer[section]);
+            delete g_wakeTimer[section];
+        }
+    }
+}
+
+function startShutting(section) {
+    g_shutting[section] = true;
+    setDot(section, 'shutting');
+    var count = 0;
+    if (g_shutTimer[section]) clearInterval(g_shutTimer[section]);
+    g_shutTimer[section] = setInterval(function() {
+        pollOne(section);
+        count++;
+        if (count >= 12) {
+            clearInterval(g_shutTimer[section]);
+            delete g_shutTimer[section];
+            if (g_shutting[section]) {
+                delete g_shutting[section];
+                setDot(section, 'offline');
+            }
+        }
+    }, 5000);
+}
+
+function clearShutting(section) {
+    if (g_shutting[section]) {
+        delete g_shutting[section];
+        if (g_shutTimer[section]) {
+            clearInterval(g_shutTimer[section]);
+            delete g_shutTimer[section];
+        }
+    }
+}
+
+// Init
 window.addEventListener('load', function() {
-	setTimeout(function() {
-		addStatusHeader();
-		pollAll();
-	}, 500);
-	g_statusTimer = setInterval(pollAll, 30000);
+    setTimeout(pollAll, 800);
+    g_pollTimer = setInterval(pollAll, 30000);
 });
 </script>
+<%+footer%>

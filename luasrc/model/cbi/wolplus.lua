@@ -21,11 +21,27 @@ for t, e in ipairs(i.net.devices()) do if e ~= "lo" then nolimit_eth:value(e) en
 nolimit_ip = e:option(Value, "ipaddr", translate("IP Address"))
 nolimit_ip.rmempty = true
 nolimit_ip.datatype = "ipaddr"
+-- ip hints from dhcp leases
+local function ip_hints(cb)
+    local f = io.open("/tmp/dhcp.leases")
+    if f then
+        local seen = {}
+        for line in f:lines() do
+            local _, mac, ip = line:match("^(%S+)%s+(%S+)%s+(%S+)")
+            if mac and ip and not seen[ip] then
+                seen[ip] = true
+                cb(mac:upper() .. " (" .. ip .. ")", ip)
+            end
+        end
+        f:close()
+    end
+end
+ip_hints(function(label, ip) nolimit_ip:value(label, ip) end)
 ----- wake device
 btn = e:option(Button, "_awake", translate("Operate"))
-btn.inputtitle	= translate("Awake")
-btn.inputstyle	= "apply"
-btn.disabled	= false
+btn.inputtitle = translate("Awake")
+btn.inputstyle = "apply"
+btn.disabled = false
 btn.template = "wolplus/awake"
 function gen_uuid(format)
     local uuid = i.exec("echo -n $(cat /proc/sys/kernel/random/uuid)")
