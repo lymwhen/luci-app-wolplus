@@ -10,10 +10,26 @@ uci:foreach("wolplus", "macclient", function(s)
             name = s.name,
             macaddr = s.macaddr or "",
             maceth = s.maceth or "",
-            ipaddr = s.ipaddr or ""
+            ipaddr = s.ipaddr or "",
+            order = tonumber(s.order) or 0
         }
     end
 end)
+table.sort(devices, function(a, b) return a.order < b.order end)
+
+-- migrate old devices without order
+local has_unordered = false
+for _, d in ipairs(devices) do
+    if d.order == 0 then has_unordered = true; break end
+end
+if has_unordered then
+    for i, d in ipairs(devices) do
+        uci:set("wolplus", d.section, "order", i)
+        d.order = i
+    end
+    uci:save("wolplus")
+    uci:commit("wolplus")
+end
 
 local mac_hints = {}
 sys.net.mac_hints(function(mac, desc)
@@ -41,80 +57,121 @@ end
 %>
 <%+header%>
 <style>
+/* === CSS Variables (dark mode via prefers-color-scheme) === */
+.md-app {
+    --md-bg-card: #fff;
+    --md-bg-card-alt: #fafafa;
+    --md-bg-hover: rgba(0,0,0,.06);
+    --md-text-primary: #212121;
+    --md-text-secondary: #757575;
+    --md-text-muted: #616161;
+    --md-border: #e0e0e0;
+    --md-bg-input: #fff;
+    --md-bg-code: #f5f5f5;
+    --md-bg-dropdown: #fff;
+    --md-bg-dropdown-hover: #f5f5f5;
+    --md-shadow-dropdown: rgba(0,0,0,.18);
+    --md-color-agent-bg: #e3f2fd;
+    --md-color-agent-bg-hover: #bbdefb;
+    --md-color-agent-text: #1565c0;
+    --md-color-empty: #bdbdbd;
+}
+
+@media (prefers-color-scheme: dark) {
+    .md-app {
+        --md-bg-card: #1e1e1e;
+        --md-bg-card-alt: #252525;
+        --md-bg-hover: rgba(255,255,255,.06);
+        --md-text-primary: #e0e0e0;
+        --md-text-secondary: #9e9e9e;
+        --md-text-muted: #9e9e9e;
+        --md-border: #424242;
+        --md-bg-input: #2a2a2a;
+        --md-bg-code: #333;
+        --md-bg-dropdown: #2a2a2a;
+        --md-bg-dropdown-hover: #3a3a3a;
+        --md-shadow-dropdown: rgba(0,0,0,.5);
+        --md-color-agent-bg: #1a3a52;
+        --md-color-agent-bg-hover: #234a6e;
+        --md-color-agent-text: #64b5f6;
+        --md-color-empty: #757575;
+    }
+}
+
 /* === Reset & Base === */
-.md-app { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #212121; }
+.md-app { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--md-text-primary); }
 .md-app *, .md-app *::before, .md-app *::after { box-sizing: border-box; }
 
 /* === Card common === */
 .md-card {
-    background: #fff; border-radius: 8px;
+    background: var(--md-bg-card-alt); border-radius: 8px;
     box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.08);
-    overflow: hidden;
     transition: box-shadow .2s;
 }
 .md-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.15), 0 2px 4px rgba(0,0,0,.1); }
 
 /* === Add form card === */
-.md-add-card { background: #fafafa; margin-bottom: 12px; }
+.md-add-card { background: var(--md-bg-card-alt); margin-bottom: 12px; }
 .md-add-header {
     display: flex; align-items: center; padding: 14px 16px;
     cursor: pointer; user-select: none; border-bottom: 1px solid transparent;
-    transition: background .15s;
+    border-radius: 8px; transition: background .15s, border-radius .15s;
 }
-.md-add-header:hover { background: #f0f0f0; }
-.md-add-header.open { border-bottom-color: #e0e0e0; }
+.md-add-header:hover { background: var(--md-bg-hover); }
+.md-add-header.open { border-bottom-color: var(--md-border); border-radius: 8px 8px 0 0; }
 .md-add-icon { font-size: 18px; color: #1976d2; margin-right: 8px; }
 .md-add-title { font-size: 15px; font-weight: 500; color: #1976d2; }
-.md-add-toggle { margin-left: auto; font-size: 12px; color: #757575; transition: transform .2s; }
+.md-add-toggle { margin-left: auto; font-size: 12px; color: var(--md-text-secondary); transition: transform .2s; }
 .md-add-header.open .md-add-toggle { transform: rotate(180deg); }
 .md-add-body { display: none; padding: 16px; }
-.md-add-body.open { display: block; }
+.md-add-body.open { display: block; border-radius: 0 0 8px 8px; }
 
 /* === Agent section === */
 .md-agent-section { margin-bottom: 12px; }
 .md-agent-header {
     display: flex; align-items: center; padding: 10px 12px;
     cursor: pointer; user-select: none;
-    background: #e3f2fd; border-radius: 8px;
+    background: var(--md-color-agent-bg); border-radius: 8px;
     transition: background .15s;
 }
-.md-agent-header:hover { background: #bbdefb; }
-.md-agent-icon { font-size: 16px; margin-right: 8px; color: #1565c0; }
-.md-agent-title { font-size: 14px; font-weight: 500; color: #1565c0; }
-.md-agent-toggle { margin-left: auto; font-size: 12px; color: #1565c0; transition: transform .2s; }
+.md-agent-header:hover { background: var(--md-color-agent-bg-hover); }
+.md-agent-icon { font-size: 16px; margin-right: 8px; color: var(--md-color-agent-text); }
+.md-agent-title { font-size: 14px; font-weight: 500; color: var(--md-color-agent-text); }
+.md-agent-toggle { margin-left: auto; font-size: 12px; color: var(--md-color-agent-text); transition: transform .2s; }
 .md-agent-header.open .md-agent-toggle { transform: rotate(180deg); }
-.md-agent-body { display: none; padding: 12px; font-size: 13px; color: #616161; line-height: 1.6; }
+.md-agent-body { display: none; padding: 12px; font-size: 13px; color: var(--md-text-muted); line-height: 1.6; }
 .md-agent-body.open { display: block; }
 .md-agent-body p { margin: 0 0 8px; }
 .md-agent-body ol { margin: 0 0 8px; padding-left: 20px; }
 .md-agent-body ol li { margin-bottom: 4px; }
 .md-agent-body pre {
-    background: #f5f5f5; color: #616161; padding: 12px; border-radius: 6px;
+    background: var(--md-bg-code); color: var(--md-text-muted); padding: 12px; border-radius: 6px;
     font-size: 12px; line-height: 1.5; overflow-x: auto; margin: 8px 0;
-    border: 1px solid #e0e0e0;
+    border: 1px solid var(--md-border);
 }
 .md-agent-download {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 8px 16px; border-radius: 6px; text-decoration: none;
     font-size: 13px; font-weight: 500; margin: 8px 0;
 }
-.md-agent-divider { border-top: 1px solid #e0e0e0; margin: 12px 0 4px; }
+.md-agent-divider { border-top: 1px solid var(--md-border); margin: 12px 0 4px; }
 .md-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .md-form-grid .md-field.full { grid-column: 1 / -1; }
-.md-field label { display: block; font-size: 12px; font-weight: 500; color: #757575; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+.md-field label { display: block; font-size: 12px; font-weight: 500; color: var(--md-text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
 .md-field input, .md-field select {
     width: 100%; padding: 10px 12px; font-size: 14px; line-height: 0.9;
-    border: 1px solid #e0e0e0; border-radius: 6px; outline: none;
-    background: #fff; transition: border-color .2s, box-shadow .2s;
+    border: 1px solid var(--md-border); border-radius: 6px; outline: none;
+    background: var(--md-bg-input); color: var(--md-text-primary);
+    transition: border-color .2s, box-shadow .2s;
 }
 .md-field .md-quick-pick {
     margin-bottom: 4px; padding: 6px 8px; font-size: 13px; line-height: 1.3;
-    color: #616161; background: #f5f5f5; border-color: #e0e0e0;
+    color: var(--md-text-muted); background: var(--md-bg-code); border-color: var(--md-border);
 }
 .md-field input:focus, .md-field select:focus {
     border-color: #1976d2; box-shadow: 0 0 0 2px rgba(25,118,210,.15);
 }
-.md-add-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; padding-top: 12px; border-top: 1px solid #e0e0e0; }
+.md-add-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--md-border); }
 
 /* === Buttons === */
 .md-btn {
@@ -126,8 +183,8 @@ end
 }
 .md-btn--primary { background: #1976d2; color: #fff; }
 .md-btn--primary:hover { background: #1565c0; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
-.md-btn--flat { background: transparent; color: #616161; }
-.md-btn--flat:hover { background: rgba(0,0,0,.06); }
+.md-btn--flat { background: transparent; color: var(--md-text-muted); }
+.md-btn--flat:hover { background: var(--md-bg-hover); }
 .md-btn--flat.danger { color: #c62828; }
 .md-btn--flat.danger:hover { background: rgba(198,40,40,.08); }
 
@@ -135,22 +192,46 @@ end
 .md-device-card { display: flex; align-items: center; padding: 14px 16px; }
 .md-device-card .md-status { flex-shrink: 0; margin-right: 14px; }
 .md-device-card .md-info { flex: 1; min-width: 0; }
-.md-device-card .md-name { font-size: 15px; font-weight: 500; color: #212121; line-height: 1.4; }
-.md-device-card .md-sub { font-size: 13px; color: #757575; line-height: 1.4; margin-top: 2px; }
+.md-device-card .md-name { font-size: 15px; font-weight: 500; color: var(--md-text-primary); line-height: 1.4; }
+.md-device-card .md-sub { font-size: 13px; color: var(--md-text-secondary); line-height: 1.4; margin-top: 2px; }
 .md-device-card .md-actions { flex-shrink: 0; display: flex; gap: 4px; margin-left: 8px; }
 .md-icon-btn {
     width: 38px; height: 38px; border: none; background: transparent;
     border-radius: 50%; cursor: pointer; display: flex; align-items: center;
-    justify-content: center; color: #616161;
+    justify-content: center; color: var(--md-text-muted);
     transition: background .15s, color .15s; outline: none;
 }
-.md-icon-btn:hover { background: rgba(0,0,0,.06); }
+.md-icon-btn:hover { background: var(--md-bg-hover); }
 .md-icon-btn.wake { color: #388e3c; }
 .md-icon-btn.shutdown { color: #c62828; }
 .md-icon-btn.delete { color: #9e9e9e; }
 .md-icon-btn.wake:hover { background: rgba(76,175,80,.12); }
 .md-icon-btn.shutdown:hover { background: rgba(244,67,54,.1); }
-.md-icon-btn.delete:hover { background: rgba(158,158,158,.15); color: #616161; }
+.md-icon-btn.delete:hover { background: rgba(158,158,158,.15); color: var(--md-text-muted); }
+.md-icon-btn.menu { color: var(--md-text-secondary); }
+.md-icon-btn.menu:hover { background: var(--md-bg-hover); color: var(--md-text-primary); }
+
+/* === Dropdown menu === */
+.md-menu-wrap { position: relative; }
+.md-dropdown {
+    display: none; position: absolute; right: 0; top: 100%;
+    z-index: 200; background: var(--md-bg-dropdown); border-radius: 8px;
+    box-shadow: 0 4px 16px var(--md-shadow-dropdown); min-width: 130px;
+    padding: 4px 0; margin-top: 4px;
+}
+.md-dropdown.open { display: block; }
+.md-dropdown button {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 10px 14px; border: none !important; outline: none;
+    background: transparent; font-size: 13px; color: var(--md-text-primary);
+    cursor: pointer; text-align: left; white-space: nowrap;
+}
+.md-dropdown button:hover { background: var(--md-bg-dropdown-hover); }
+.md-dropdown button:disabled { color: var(--md-text-secondary); cursor: default; }
+.md-dropdown button:disabled:hover { background: transparent; }
+.md-dropdown button.delete-item { color: #c62828; }
+.md-dropdown button.delete-item:hover { background: rgba(198,40,40,.08); }
+.md-dropdown .dd-icon { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
 
 /* === CSS power icon (for shutdown button) === */
 /* === Device list grid === */
@@ -182,7 +263,7 @@ end
 }
 
 /* === Empty state === */
-.md-empty { text-align: center; padding: 48px 16px; color: #9e9e9e; }
+.md-empty { text-align: center; padding: 48px 16px; color: var(--md-text-secondary); }
 .md-empty-icon { font-size: 48px; margin-bottom: 12px; }
 .md-empty-text { font-size: 14px; }
 
@@ -221,7 +302,7 @@ end
                     <p><%:Install the Windows Agent on target PCs to enable online status detection and remote shutdown.%></p>
                     <a class="md-agent-download" href="https://raw.githubusercontent.com/lymwhen/luci-app-wolplus/main/wol-agent/wol-agent.exe" download>
                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        <%:Download wol-agent.exe%> (~1.5 MB)
+                        <%:Download wol-agent.exe%> (~6 MB)
                     </a>
                     <p><%:Installation steps:%></p>
                     <ol>
@@ -284,7 +365,7 @@ nssm start WolAgent</pre>
     <div id="device-list">
         <% if #devices == 0 then %>
         <div class="md-card md-empty" id="empty-state">
-            <div class="md-empty-icon">&#128267;</div>
+            <div class="md-empty-icon"><svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="var(--md-color-empty)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
             <div class="md-empty-text"><%:No devices configured. Click "+ Add Device" to get started.%></div>
         </div>
         <% end %>
@@ -300,7 +381,14 @@ nssm start WolAgent</pre>
             <div class="md-actions">
                 <button class="md-icon-btn wake" title="<%:Wake up%>" onclick="doAwake(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>
                 <button class="md-icon-btn shutdown" title="<%:Shutdown%>" onclick="doShutdown(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><line x1="12" y1="2" x2="12" y2="10"/></svg></button>
-                <button class="md-icon-btn delete" title="<%:Delete%>" onclick="doDelete(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                <div class="md-menu-wrap">
+                    <button class="md-icon-btn menu" title="<%:More%>" onclick="toggleMenu(this)" data-section="<%=d.section%>"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
+                    <div class="md-dropdown" id="menu-<%=d.section%>">
+                        <button onclick="moveUp('<%=d.section%>')"><span class="dd-icon">↑</span> <%:Move Up%></button>
+                        <button onclick="moveDown('<%=d.section%>')"><span class="dd-icon">↓</span> <%:Move Down%></button>
+                        <button class="delete-item" onclick="doDelete(this)" data-section="<%=d.section%>"><span class="dd-icon">✕</span> <%:Delete%></button>
+                    </div>
+                </div>
             </div>
         </div>
         <% end %>
@@ -334,6 +422,8 @@ var awakeUrl  = '<%=url([[admin]], [[services]], [[wolplus]], [[awake]])%>';
 var shutdownUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[shutdown]])%>';
 var addUrl    = '<%=url([[admin]], [[services]], [[wolplus]], [[add]])%>';
 var deleteUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[delete]])%>';
+var moveUpUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[move_up]])%>';
+var moveDownUrl = '<%=url([[admin]], [[services]], [[wolplus]], [[move_down]])%>';
 var g_waking = {};      // section -> true
 var g_shutting = {};    // section -> true
 var g_wakeTimer = {};
@@ -355,6 +445,55 @@ function toggleAdd() {
     hdr.classList.toggle('open', open);
     if (open) document.getElementById('f-name').focus();
 }
+
+function toggleMenu(btn) {
+    var section = btn.getAttribute('data-section');
+    var menu = document.getElementById('menu-' + section);
+    var open = menu.classList.toggle('open');
+    // close other menus
+    var all = document.querySelectorAll('.md-dropdown.open');
+    for (var i = 0; i < all.length; i++) {
+        if (all[i] !== menu) all[i].classList.remove('open');
+    }
+}
+
+function moveUp(section) {
+    closeAllMenus();
+    swapCards(section, 'prev');
+    var xhr = new XHR();
+    xhr.post(moveUpUrl + '/' + section, { token: token }, function() {});
+}
+
+function moveDown(section) {
+    closeAllMenus();
+    swapCards(section, 'next');
+    var xhr = new XHR();
+    xhr.post(moveDownUrl + '/' + section, { token: token }, function() {});
+}
+
+function swapCards(section, dir) {
+    var card = document.getElementById('card-' + section);
+    if (!card) return;
+    var sibling = dir === 'prev' ? card.previousElementSibling : card.nextElementSibling;
+    if (!sibling || !sibling.classList.contains('md-device-card')) return;
+    var list = document.getElementById('device-list');
+    if (dir === 'prev') {
+        list.insertBefore(card, sibling);
+    } else {
+        list.insertBefore(sibling, card);
+    }
+}
+
+function closeAllMenus() {
+    var menus = document.querySelectorAll('.md-dropdown.open');
+    for (var i = 0; i < menus.length; i++) {
+        menus[i].classList.remove('open');
+    }
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.md-menu-wrap')) closeAllMenus();
+});
 
 function toggleAgent() {
     var body = document.getElementById('agent-body');
@@ -509,7 +648,14 @@ function addCard(section, name, ip) {
         '<div class="md-actions">' +
         '<button class="md-icon-btn wake" title="<%:Wake up%>" onclick="doAwake(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>' +
         '<button class="md-icon-btn shutdown" title="<%:Shutdown%>" onclick="doShutdown(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.72 0"/><line x1="12" y1="2" x2="12" y2="10"/></svg></button>' +
-        '<button class="md-icon-btn delete" title="<%:Delete%>" onclick="doDelete(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>' +
+        '<div class="md-menu-wrap">' +
+        '<button class="md-icon-btn menu" title="<%:More%>" onclick="toggleMenu(this)" data-section="' + section + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>' +
+        '<div class="md-dropdown" id="menu-' + section + '">' +
+        '<button onclick="moveUp(\'' + section + '\')"><span class="dd-icon">↑</span> <%:Move Up%></button>' +
+        '<button onclick="moveDown(\'' + section + '\')"><span class="dd-icon">↓</span> <%:Move Down%></button>' +
+        '<button class="delete-item" onclick="doDelete(this)" data-section="' + section + '"><span class="dd-icon">✕</span> <%:Delete%></button>' +
+        '</div>' +
+        '</div>' +
         '</div>';
 
     document.getElementById('device-list').appendChild(card);
@@ -624,5 +770,11 @@ window.addEventListener('load', function() {
     setTimeout(pollAll, 800);
     g_pollTimer = setInterval(pollAll, 30000);
 });
+
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) pollAll();
+});
+window.addEventListener('pageshow', function() { pollAll(); });
+window.addEventListener('focus', function() { pollAll(); });
 </script>
 <%+footer%>

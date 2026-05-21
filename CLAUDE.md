@@ -63,8 +63,10 @@ entry({"admin", "services", "wolplus"}, template("wolplus/index"), ...)
 | POST | `/status/<section>` | 查询单台在线状态 (curl agent) | URL segment |
 | POST | `/status_all` | 批量查询所有在线状态 | — |
 | POST | `/shutdown/<section>` | 远程关机 (curl agent) | URL segment |
-| POST | `/add` | 添加设备 (UCI write) | formvalue |
+| POST | `/add` | 添加设备 (UCI write + 自动排序) | formvalue |
 | POST | `/delete/<section>` | 删除设备 (UCI delete) | URL segment |
+| POST | `/move_up/<section>` | 上移设备 (交换 order) | URL segment |
+| POST | `/move_down/<section>` | 下移设备 (交换 order) | URL segment |
 
 **Token 验证**：POST 端点有自动 CSRF 检查。在 `template()` 模式下，token 必须出现在 query string 中（而非 JSON body），因为 Luci 的 token 解析优先检查 URL 参数。
 
@@ -114,15 +116,17 @@ nssm start WolAgent
 │  └──────────────────────────────────────────┘│
 │                                              │
 │  ┌────────────────────────────────────┐ ─┐   │
-│  │ ●  My PC                     ⚡ ⏻ ✕ │  │   │  ← 设备卡片
+│  │ ●  My PC                     ⚡ ⏻ ⋮ │  │   │  ← 设备卡片
 │  │    192.168.1.100                   │  │   │     (宽屏2列)
 │  └────────────────────────────────────┘ ─┘   │
 │  ┌────────────────────────────────────┐      │
-│  │ ●  Office Laptop            ⚡ ⏻ ✕ │      │
+│  │ ●  Office Laptop            ⚡ ⏻ ⋮ │      │
 │  │    192.168.1.101                   │      │
 │  └────────────────────────────────────┘      │
 └──────────────────────────────────────────────┘
 ```
+
+⋮ 按钮展开菜单：上移 / 下移 / 删除。
 
 ### 设计原则
 
@@ -131,10 +135,13 @@ nssm start WolAgent
 - **响应式**：默认单列，≥700px 双列网格；≤520px 表单单列 + 按钮换行
 - **折叠表单**：默认隐藏，点击标题展开/收起，与卡片列表分离
 - **表单内嵌 Agent 说明**：表单顶部折叠区，展开后展示 Windows Agent 下载按钮 + nssm 安装命令
+- **低频操作收合**：上移/下移/删除收入 ⋮ 菜单，点击展开下拉面板，减少卡片视觉噪音
 - **彩色状态点**：🟢 在线 / ⚪ 离线 / 🟠 开机中闪烁 / 🔴 关机中闪烁
-- **彩色图标按钮**：唤醒绿色(#388e3c)、关机红色(#c62828)、删除灰色(#9e9e9e)
+- **彩色图标按钮**：唤醒绿色(#388e3c)、关机红色(#c62828)、菜单灰色(#9e9e9e)
 - **Toast 提示**：底部居中黑底白字，2.5s 自动消失
 - **Luci 主题色**：下载按钮等交互元素使用 CSS 变量 `var(--primary)`，自动跟随 Luci 主题
+- **暗色模式**：通过 CSS 自定义属性 + `@media (prefers-color-scheme: dark)` 自动适配，覆盖卡片、表单、下拉菜单、代码块等所有组件
+- **移动端后台恢复**：`visibilitychange` + `pageshow` + `focus` 三重事件监听，浏览器切回前台立即全量检测
 
 ### 图标
 
@@ -144,8 +151,17 @@ nssm start WolAgent
 - **关机** — 电源符号（圆弧+竖线）
 - **删除** — X 形交叉线
 - **Windows 徽标** — 四格窗口 `<rect>` x4（Agent 安装入口图标）
+- **菜单** — 三点纵排 `<circle>` x3（展开上移/下移/删除）
 
 SVG 内联方式避免了 emoji 跨平台渲染差异和字体依赖问题。
+
+### 设备排序
+
+每个设备有 `order` 整数字段。添加时自动分配 `max + 1`。上下移动时交换相邻设备的 order 值。
+
+- **前端**：`swapCards()` 直接交换 DOM 节点，无需刷新页面
+- **后端**：`move_up`/`move_down` 端点交换 UCI order 后即时保存
+- **菜单设计**：上移/下移/删除收合在 ⋮ 按钮中，减少卡片按钮数量
 
 ### Agent 下载
 
@@ -279,6 +295,12 @@ XHR.prototype.post = function(url, data, callback) {
 **现象**：自定义 `<a>` 标签的颜色在 Luci 页面上被覆盖为主题色。
 **原因**：Luci 全局 CSS 使用 `var(--primary)` 为链接设置颜色，优先级高于内联样式。
 **解决**：Agent 下载按钮不设置 `background` 和 `border`，作为纯文字链接，让 Luci 主题自然控制颜色。按钮仅保留 `padding` + `border-radius` 作为点击区域。
+
+### 8. 暗色模式下按钮/下拉菜单出现意外边框
+
+**现象**：暗色模式下菜单项出现灰色边框。
+**原因**：Luci 暗色模式 CSS 有全局规则 `button { border: 1px solid #3c3c3c !important; }`，覆盖了自定义的 `border: none`。
+**解决**：自定义按钮必须用 `border: none !important` 反制，只作用于精确的 class 选择器下（如 `.md-dropdown button`）。
 
 ## 部署清单
 

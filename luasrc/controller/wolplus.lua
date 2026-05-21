@@ -10,6 +10,8 @@ function index()
     entry({"admin", "services", "wolplus", "shutdown"}, post("shutdown")).leaf = true
     entry({"admin", "services", "wolplus", "add"}, post("add")).leaf = true
     entry({"admin", "services", "wolplus", "delete"}, post("delete")).leaf = true
+    entry({"admin", "services", "wolplus", "move_up"}, post("move_up")).leaf = true
+    entry({"admin", "services", "wolplus", "move_down"}, post("move_down")).leaf = true
 end
 
 function awake(sections)
@@ -130,6 +132,13 @@ function add()
     if ip and ip ~= "" then
         x:set("wolplus", section, "ipaddr", ip)
     end
+    -- auto-assign order = max + 1
+    local max_order = 0
+    x:foreach("wolplus", "macclient", function(s)
+        local o = tonumber(s.order) or 0
+        if o > max_order then max_order = o end
+    end)
+    x:set("wolplus", section, "order", max_order + 1)
     x:save("wolplus")
     x:commit("wolplus")
 
@@ -141,6 +150,42 @@ function delete(sections)
     x:delete("wolplus", sections)
     x:save("wolplus")
     x:commit("wolplus")
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({success = true})
+end
+
+function move_up(sections)
+    local cur = tonumber(x:get("wolplus", sections, "order")) or 0
+    local prev_section, prev_order = nil, -1
+    x:foreach("wolplus", "macclient", function(s)
+        local o = tonumber(s.order) or 0
+        if o < cur and o > prev_order and s['.name'] ~= sections then
+            prev_order = o; prev_section = s['.name']
+        end
+    end)
+    if prev_section then
+        x:set("wolplus", sections, "order", prev_order)
+        x:set("wolplus", prev_section, "order", cur)
+        x:save("wolplus"); x:commit("wolplus")
+    end
+    luci.http.prepare_content("application/json")
+    luci.http.write_json({success = true})
+end
+
+function move_down(sections)
+    local cur = tonumber(x:get("wolplus", sections, "order")) or 0
+    local next_section, next_order = nil, math.huge
+    x:foreach("wolplus", "macclient", function(s)
+        local o = tonumber(s.order) or 0
+        if o > cur and o < next_order and s['.name'] ~= sections then
+            next_order = o; next_section = s['.name']
+        end
+    end)
+    if next_section then
+        x:set("wolplus", sections, "order", next_order)
+        x:set("wolplus", next_section, "order", cur)
+        x:save("wolplus"); x:commit("wolplus")
+    end
     luci.http.prepare_content("application/json")
     luci.http.write_json({success = true})
 end

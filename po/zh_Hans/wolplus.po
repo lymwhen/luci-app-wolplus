@@ -31,6 +31,15 @@ msgstr "唤醒"
 msgid "Delete"
 msgstr "删除"
 
+msgid "More"
+msgstr "更多"
+
+msgid "Move Up"
+msgstr "上移"
+
+msgid "Move Down"
+msgstr "下移"
+
 msgid "Add Device"
 msgstr "添加设备"
 
