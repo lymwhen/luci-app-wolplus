@@ -331,3 +331,10 @@ go build -ldflags="-s -w" -o wol-agent.exe
 
 - **路由器**：`etherwake`（发送 Magic Packet）、`curl`（调用 Agent API）
 - **Windows**：Go 1.21+（仅编译时需要）、nssm（服务化）
+
+
+### Commit
+
+- **格式**：`type: description`，type = `feat` / `fix` / `docs` / `chore` / `refactor`
+- **禁止**以 `@` 开头，禁止在 commit message 两端使用 `@'...'@` 包裹
+- **推送前**检查 `git log --oneline -1` 确认格式正确
