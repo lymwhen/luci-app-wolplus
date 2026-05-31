@@ -1,0 +1,94 @@
+#!/usr/bin/lua
+-- WOLPlus API - standalone CGI endpoint for external WOL device management
+-- Accessible at /cgi-bin/wolplus-api without LuCI authentication
+-- Called by the device management UI over EasyTier virtual network
+
+local function urldecode(s)
+    if not s then return "" end
+    s = s:gsub("+", " ")
+    s = s:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+    return s
+end
+
+local function parse_query()
+    local params = {}
+    local qs = os.getenv("QUERY_STRING") or ""
+    for k, v in qs:gmatch("([^&=]+)=([^&=]*)") do
+        params[urldecode(k)] = urldecode(v)
+    end
+    return params
+end
+
+local function json_escape(s)
+    if not s then return "" end
+    return s:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "\\r"):sub(1, 200)
+end
+
+local params = parse_query()
+local action = params.action or ""
+
+print("Content-type: application/json")
+print("")
+
+if action == "wake" then
+    local mac = params.mac or ""
+    local iface = params.iface or "br-lan"
+
+    if mac == "" then
+        print('{"success":false,"message":"Missing mac parameter"}')
+        return
+    end
+
+    local cmd = "/usr/bin/etherwake -D -i " .. iface .. " -b " .. mac .. " 2>&1"
+    local f = io.popen(cmd)
+    local output = f:read("*a") or ""
+    f:close()
+
+    print(string.format(
+        '{"success":true,"action":"wake","mac":"%s","interface":"%s","output":"%s"}',
+        json_escape(mac), json_escape(iface), json_escape(output)
+    ))
+
+elseif action == "status" then
+    local ip = params.ip or ""
+    local port = params.port or "32249"
+
+    if ip == "" then
+        print('{"online":false,"error":"Missing ip parameter"}')
+        return
+    end
+
+    local cmd = "curl -s -m 2 http://" .. ip .. ":" .. port .. "/api/v1/status 2>/dev/null"
+    local f = io.popen(cmd)
+    local result = f:read("*a") or ""
+    f:close()
+
+    if result ~= "" then
+        print(result)
+    else
+        print('{"online":false}')
+    end
+
+elseif action == "shutdown" then
+    local ip = params.ip or ""
+    local port = params.port or "32249"
+
+    if ip == "" then
+        print('{"success":false,"message":"Missing ip parameter"}')
+        return
+    end
+
+    local cmd = "curl -s -m 5 -X POST http://" .. ip .. ":" .. port .. "/api/v1/shutdown 2>/dev/null"
+    local f = io.popen(cmd)
+    local result = f:read("*a") or ""
+    f:close()
+
+    if result ~= "" then
+        print(result)
+    else
+        print('{"success":false,"message":"No response from agent"}')
+    end
+
+else
+    print('{"error":"Unknown action. Supported: wake, status, shutdown"}')
+end

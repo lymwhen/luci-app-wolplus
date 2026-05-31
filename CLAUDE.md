@@ -29,10 +29,10 @@ OpenWrt Router (Luci App)                     Windows PC (Go Agent)
 luci-app-wolplus/
 ├── Makefile                          # OpenWrt 编译描述
 ├── luasrc/
-│   ├── controller/wolplus.lua        # 路由与 API 端点（7 个 endpoint）
+│   ├── controller/wolplus.lua        # 路由与 API 端点（9 个 endpoint）
 │   ├── model/cbi/wolplus.lua         # CBI 数据模型（向后兼容，模板模式不使用）
 │   └── view/wolplus/
-│       ├── index.htm                 # 主页面：卡片 UI + CSS + JS（~560行）
+│       ├── index.htm                 # 主页面：卡片 UI + CSS + JS（~660行）
 │       └── awake.htm                 # 按钮模板（CBI 模式遗留，模板模式不使用）
 ├── po/zh_Hans/wolplus.po             # 简体中文翻译源文件
 ├── wol-agent/                        # Windows 后台 Agent（Go）
@@ -40,7 +40,9 @@ luci-app-wolplus/
 │   ├── go.mod                        # Go module
 │   ├── install.bat                   # nssm 服务注册脚本
 │   └── wol-agent.exe                 # 编译产物（~6MB, UPX后~1.5MB）
-└── root/etc/config/wolplus           # UCI 默认配置模板
+├── root/etc/config/wolplus           # UCI 默认配置模板
+├── docs/project.md                   # 详细设计文档
+└── CLAUDE.md                         # 本文件 — 关键参考
 ```
 
 ## Luci App — Controller API
@@ -100,77 +102,6 @@ nssm start WolAgent
 
 或直接运行 `install.bat`（管理员权限）。
 
-## UI 设计系统
-
-### 布局
-
-```
-┌──────────────────────────────────────────────┐
-│  + 添加设备                            ▼     │  ← 折叠表单卡片
-│  ┌──────────────────────────────────────────┐│
-│  │ 💻 安装 Windows Agent            [展开] ││  ← 表单内嵌，默认折叠
-│  │ ─────────────────────────────────────── ││
-│  │ Name: [____]  MAC: [Quick pick ▼]       ││
-│  │ Interface: [▼]  IP: [Quick pick ▼]      ││
-│  │                     [取消] [添加]        ││
-│  └──────────────────────────────────────────┘│
-│                                              │
-│  ┌────────────────────────────────────┐ ─┐   │
-│  │ ●  My PC                     ⚡ ⏻ ⋮ │  │   │  ← 设备卡片
-│  │    192.168.1.100                   │  │   │     (宽屏2列)
-│  └────────────────────────────────────┘ ─┘   │
-│  ┌────────────────────────────────────┐      │
-│  │ ●  Office Laptop            ⚡ ⏻ ⋮ │      │
-│  │    192.168.1.101                   │      │
-│  └────────────────────────────────────┘      │
-└──────────────────────────────────────────────┘
-```
-
-⋮ 按钮展开菜单：上移 / 下移 / 删除。
-
-### 设计原则
-
-- **Material Design** 风格：卡片阴影、8px 圆角、状态过渡动画
-- **无外部依赖**：所有 CSS 内联，图标使用内联 SVG（不依赖字体或 CDN）
-- **响应式**：默认单列，≥700px 双列网格；≤520px 表单单列 + 按钮换行
-- **折叠表单**：默认隐藏，点击标题展开/收起，与卡片列表分离
-- **表单内嵌 Agent 说明**：表单顶部折叠区，展开后展示 Windows Agent 下载按钮 + nssm 安装命令
-- **低频操作收合**：上移/下移/删除收入 ⋮ 菜单，点击展开下拉面板，减少卡片视觉噪音
-- **彩色状态点**：🟢 在线 / ⚪ 离线 / 🟠 开机中闪烁 / 🔴 关机中闪烁
-- **彩色图标按钮**：唤醒绿色(#388e3c)、关机红色(#c62828)、菜单灰色(#9e9e9e)
-- **Toast 提示**：底部居中黑底白字，2.5s 自动消失
-- **Luci 主题色**：下载按钮等交互元素使用 CSS 变量 `var(--primary)`，自动跟随 Luci 主题
-- **暗色模式**：通过 CSS 自定义属性 + `@media (prefers-color-scheme: dark)` 自动适配，覆盖卡片、表单、下拉菜单、代码块等所有组件
-- **移动端后台恢复**：`visibilitychange` + `pageshow` + `focus` 三重事件监听，浏览器切回前台立即全量检测
-
-### 图标
-
-四枚 Feather Icons 风格内联 SVG，`viewBox="0 0 24 24"`，使用 `currentColor` 自动匹配按钮颜色：
-
-- **唤醒** — 闪电形状 `<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`
-- **关机** — 电源符号（圆弧+竖线）
-- **删除** — X 形交叉线
-- **Windows 徽标** — 四格窗口 `<rect>` x4（Agent 安装入口图标）
-- **菜单** — 三点纵排 `<circle>` x3（展开上移/下移/删除）
-
-SVG 内联方式避免了 emoji 跨平台渲染差异和字体依赖问题。
-
-### 设备排序
-
-每个设备有 `order` 整数字段。添加时自动分配 `max + 1`。上下移动时交换相邻设备的 order 值。
-
-- **前端**：`swapCards()` 直接交换 DOM 节点，无需刷新页面
-- **后端**：`move_up`/`move_down` 端点交换 UCI order 后即时保存
-- **菜单设计**：上移/下移/删除收合在 ⋮ 按钮中，减少卡片按钮数量
-
-### Agent 下载
-
-Agent 安装入口位于「添加设备」表单顶部，默认折叠。展开后显示：
-
-- **下载按钮**：指向 GitHub raw URL（`https://raw.githubusercontent.com/<user>/<repo>/main/wol-agent/wol-agent.exe`），不内置在 ipk 中以保持包体轻量
-- **nssm 命令**：浅色代码块（`#f5f5f5` 背景、`#616161` 灰字）
-- 下载按钮无背景无边框，文字颜色由 Luci 主题 CSS 变量 `var(--primary)` 控制
-
 ## 状态检测与轮询逻辑
 
 ### 轮询策略
@@ -200,37 +131,6 @@ clearWaking / clearShutting       → 检测到在线/离线后提前结束等�
 | 空闲 | 变绿 | 变灰 |
 
 关机期间即使 agent 短暂仍在线（关机未完成），红点持续闪烁不跳变。
-
-## 关键设计决策
-
-### 为什么用 Template 而非 CBI
-
-CBI 的 `tblsection` 表格渲染无法满足 Material Design 卡片布局需求。
-改用 `template()` 后：
-
-- **优点**：完全控制 HTML/CSS/JS，支持卡片布局、折叠表单、自定义交互
-- **代价**：失去 CBI 自动表单处理、需手动实现 XHR 封装、需显式引入 header/footer
-- **数据层**：直接通过 UCI cursor 读写 `/etc/config/wolplus`，add/delete 通过 controller 端点实现
-
-### 为什么用内联 SVG 而非 emoji/iconfont
-
-- emoji 跨平台渲染差异大（如 ⏻ 在某些浏览器显示为方框）
-- iconfont 需要外部字体文件，OpenWrt 环境不支持
-- 内联 SVG 零依赖、矢量无损、`currentColor` 自动匹配按钮状态色
-
-### 为什么 MAC/IP 使用 Quick Pick select + input 组合
-
-- `<datalist>` 在移动端 Safari 完全不显示建议列表
-- `<select>` 在移动端有原生下拉 UI，兼容性最好
-- 保留 `<input>` 允许手动输入不在列表中的值
-- select 选中后自动填入 input，表单提交实际读取 input 值
-
-### 为什么 Agent 下载放在表单顶部 + GitHub 外链
-
-- Agent 是设备功能的前提，放在表单顶部符合「先装 Agent 再加设备」的心智模型
-- 默认折叠，不影响表单简洁性，需要时展开
-- 使用 GitHub raw URL 而非内置 exe，保持 ipk 轻量（~30KB）
-- Agent 更新无需更新 Luci 包，推送 GitHub 即可
 
 ## 常见问题与解决方案
 
@@ -331,7 +231,6 @@ go build -ldflags="-s -w" -o wol-agent.exe
 
 - **路由器**：`etherwake`（发送 Magic Packet）、`curl`（调用 Agent API）
 - **Windows**：Go 1.21+（仅编译时需要）、nssm（服务化）
-
 
 ### Commit
 
