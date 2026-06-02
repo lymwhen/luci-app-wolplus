@@ -7,5 +7,14 @@ uci -q batch <<-EOF >/dev/null
 	commit ucitrack
 EOF
 
+# Setup CGI endpoint for EasyTier / external clients
+chmod 755 /www/cgi-bin/wolplus-api 2>/dev/null
+
+# Register .lua CGI interpreter in uhttpd (idempotent: only add if missing)
+if ! uci -q get uhttpd.main.interpreter | grep -q '\.lua=/usr/bin/lua'; then
+	uci -q add_list uhttpd.main.interpreter='.lua=/usr/bin/lua'
+	uci commit uhttpd
+fi
+
 rm -f /tmp/luci-indexcache
 exit 0

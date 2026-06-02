@@ -18,12 +18,11 @@ define Package/luci-app-wolplus/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 chmod 755 /www/cgi-bin/wolplus-api 2>/dev/null
-uci -q batch <<-UCI >/dev/null
-    set uhttpd.main=uhttpd
-    add_list uhttpd.main.interpreter=".lua=/usr/bin/lua"
-    commit uhttpd
-UCI
-/etc/init.d/uhttpd restart 2>/dev/null
+if ! uci -q get uhttpd.main.interpreter | grep -q '\.lua=/usr/bin/lua'; then
+	uci -q add_list uhttpd.main.interpreter='.lua=/usr/bin/lua'
+	uci commit uhttpd
+	/etc/init.d/uhttpd restart 2>/dev/null
+fi
 exit 0
 endef
 

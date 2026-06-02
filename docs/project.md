@@ -344,6 +344,21 @@ CBI 的 `tblsection` 表格渲染无法满足 Material Design 卡片布局需求
 - ⋮ 菜单最小 UI 侵入，低频操作不外露
 - 上下箭头在所有设备上均可点击
 
+### 为什么 CGI 配置放在 uci-defaults 而非仅依赖 postinst
+
+**问题**：跟随 OpenWrt 系统构建后，`/cgi-bin/wolplus-api` 不可访问。
+
+**根因**：Makefile `postinst` 中的 `[ -n "${IPKG_INSTROOT}" ] && exit 0` 会在固件镜像构建阶段直接退出（IPKG_INSTROOT 被设置）。postinst 理论上被保存并在首次启动时执行，但该机制在不同 OpenWrt 版本/构建配置下不一定可靠。
+
+**解决**：CGI 配置逻辑（`chmod 755` + uhttpd interpreter 注册）直接写入 `root/etc/uci-defaults/luci-app-wolplus`，该脚本由 `/etc/init.d/uci_defaults` 在系统启动早期执行，执行后自动删除。这是 OpenWrt 官方保证的首次启动执行机制。同时保留 Makefile postinst 用于 `opkg install` 在线安装场景，双路径覆盖。
+
+**CGI 访问所需条件**：
+1. `/www/cgi-bin/wolplus-api` 有执行权限（`chmod 755`）
+2. uhttpd 已注册 `.lua` interpreter（`uci add_list uhttpd.main.interpreter='.lua=/usr/bin/lua'`）
+3. uhttpd CGI 前缀配置正确（OpenWrt 默认 `/cgi-bin`）
+
+> 注：CGI 脚本首行 `#!/usr/bin/lua` 的 shebang 在内核层面即可工作，uhttpd interpreter 注册为兜底保障。若 CGI 配置后仍不可访问，手动执行 `sh /etc/uci-defaults/luci-app-wolplus && /etc/init.d/uhttpd restart`。
+
 ---
 
 ## 测试与验证
