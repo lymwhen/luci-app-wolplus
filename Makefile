@@ -16,13 +16,15 @@ include $(TOPDIR)/feeds/luci/luci.mk
 
 define Package/luci-app-wolplus/postinst
 #!/bin/sh
+[ "$${IPKG_NO_SCRIPT}" = "1" ] && exit 0
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
 chmod 755 /www/cgi-bin/wolplus-api 2>/dev/null
 if ! uci -q get uhttpd.main.interpreter | grep -q '\.lua=/usr/bin/lua'; then
 	uci -q add_list uhttpd.main.interpreter='.lua=/usr/bin/lua'
 	uci commit uhttpd
-	/etc/init.d/uhttpd restart 2>/dev/null
 fi
+rm -f /tmp/luci-indexcache
+/etc/init.d/uhttpd restart 2>/dev/null
 exit 0
 endef
 

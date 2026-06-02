@@ -361,6 +361,116 @@ CBI 的 `tblsection` 表格渲染无法满足 Material Design 卡片布局需求
 
 ---
 
+## 构建与打包
+
+### 构建脚本
+
+使用 `scripts/build_ipk.py` 打包为标准 ipk，**无需 OpenWrt buildroot**。
+
+```powershell
+# 需要 Python 3.5+，纯 stdlib，零外部依赖
+python scripts/build_ipk.py
+```
+
+输出在 `build/` 目录：
+- `luci-app-wolplus_2.0-<date>_all.ipk` — 标准安装包
+- `luci-app-wolplus_2.0-<date>_raw.tar.gz` — 裸 data.tar.gz，可选手动解压到 `/`
+
+### ipk 格式
+
+OpenWrt 24.10+ / ImmortalWrt 的 opkg 使用 **gzipped tar 格式**，不再是传统 ar 归档。
+
+```
+luci-app-wolplus_x.x-xxx_all.ipk  (gzipped tar)
+├── ./debian-binary          "2.0\n"
+├── ./control.tar.gz         控制文件（control, postinst, conffiles）
+└── ./data.tar.gz            安装文件（映射到 /）
+```
+
+| 版本 | 格式 | 识别方式 |
+|------|------|---------|
+| 传统 OpenWrt (< 24.10) | ar 归档 | 文件头 `!<arch>\n` |
+| ImmortalWrt 24.10+ | gzipped tar | 文件头 `1f 8b` (gzip magic) |
+
+### 部署到路由器
+
+```powershell
+# 上传（PuTTY pscp，支持 -pw 密码认证）
+pscp -pw "<pwd>" build/luci-app-wolplus_*.ipk root@<IP>:/tmp/
+
+# 安装（PuTTY plink）
+plink -pw "<pwd>" root@<IP> "opkg install /tmp/luci-app-wolplus_*.ipk"
+```
+
+首次安装或升级均使用 `opkg install`。若版本号未变需强制重装：
+
+```sh
+opkg remove --force-depends luci-app-wolplus && opkg install /tmp/luci-app-wolplus_*.ipk
+```
+
+### 问题记录
+
+#### 1. Malformed package file（ar 格式不被识别）
+
+**现象**：`opkg install` 报 `pkg_init_from_file: Malformed package file`。
+
+**原因**：ImmortalWrt 24.10+ 的 opkg 期望 gzipped tar 格式，不接受传统 ar 归档格式。通过对比官方仓库的 `luci-app-acl` ipk 确认——其文件头为 `1f8b`（gzip magic），而非 `!<arch>\n`。
+
+**解决**：`build_ipk.py` 外层容器从手写 ar 头改为 `tarfile.open(..., "w:gz")`，同时删除了 ~40 行 `write_ar()` 代码。Python stdlib 的 `tarfile` 直接支持 gzipped tar，无需额外依赖。
+
+#### 2. postinst 中的 uhttpd restart 时机
+
+**问题**：早期 postinst 仅在"新增 interpreter 条目"时重启 uhttpd。若系统已配置过 `.lua` interpreter（多数情况），跳过了 uhttpd 重启和 Luci 缓存清理，导致安装后 CGI 和 LuCI 页面不可立即可用。
+
+**解决**：postinst 总是执行 `rm -f /tmp/luci-indexcache` + `/etc/init.d/uhttpd restart`。uhttpd 重启不影响 SSH（dropbear 独立运行），无需担心连接中断。
+
+#### 3. postinst 逻辑分散在三个位置
+
+| 位置 | 触发场景 | 用途 |
+|------|---------|------|
+| `Makefile` 的 `Package/.../postinst` | OpenWrt buildroot 构建 + opkg install | 在线安装路径 |
+| `build_ipk.py` 的 `build_control_tar()` | 独立 ipk 构建 | 同上，独立构建路径 |
+| `root/etc/uci-defaults/luci-app-wolplus` | 系统首次启动 | 固件镜像烧录后首次启动 |
+
+三个 postinst 必须保持逻辑一致：chmod CGI → 注册 interpreter → 清理 Lua 缓存。Makefile 和 build_ipk.py 的版本还需额外执行 `uhttpd restart`（在线生效）。
+
+#### 4. Windows 环境下 SSH 密码认证
+
+PuTTY 套件（`pscp.exe` / `plink.exe`）支持 `-pw` 参数直接传密码，无需 sshpass。需用 `-hostkey` 指定主机密钥指纹避免交互式确认：
+
+```powershell
+ssh-keyscan -t ed25519 <IP>   # 获取主机密钥
+pscp -pw "..." -hostkey "ssh-ed25519 <key>" ...
+```
+
+### 安装后验证清单
+
+```sh
+# 1. CGI 接口（4 个 action）
+curl -s 'http://127.0.0.1/cgi-bin/wolplus-api?action=wake&mac=00:11:22:33:44:55'
+curl -s 'http://127.0.0.1/cgi-bin/wolplus-api?action=status&ip=127.0.0.1'
+curl -s 'http://127.0.0.1/cgi-bin/wolplus-api?action=shutdown&ip=127.0.0.1'
+curl -s 'http://127.0.0.1/cgi-bin/wolplus-api?action=invalid'
+
+# 2. 参数校验
+curl -s 'http://127.0.0.1/cgi-bin/wolplus-api?action=wake'        # 缺少 mac
+curl -s 'http://127.0.0.1/cgi-bin/wolplus-api?action=status'       # 缺少 ip
+
+# 3. CGI 文件权限
+ls -la /www/cgi-bin/wolplus-api   # -rwxr-xr-x
+
+# 4. uhttpd interpreter
+uci show uhttpd.main.interpreter  # 含 '.lua=/usr/bin/lua'
+
+# 5. LuCI 页面（应返回 HTML 或 403，非 404）
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/cgi-bin/luci/admin/services/wolplus
+
+# 6. opkg 包状态
+opkg status luci-app-wolplus
+```
+
+---
+
 ## 测试与验证
 
 ### Agent 测试
