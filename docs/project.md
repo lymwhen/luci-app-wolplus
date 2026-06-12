@@ -10,7 +10,8 @@ OpenWrt LuCI 远程开机插件 + Windows 后台 Agent，同时为 [EasyTier](..
 4. [Windows Agent 设计](#windows-agent-设计)
 5. [EasyTier 集成](#easytier-集成)
 6. [设计决策记录](#设计决策记录)
-7. [测试与验证](#测试与验证)
+7. [构建与打包](#构建与打包)
+8. [测试与验证](#测试与验证)
 
 ---
 
@@ -32,6 +33,7 @@ OpenWrt LuCI 远程开机插件 + Windows 后台 Agent，同时为 [EasyTier](..
 | 远程关机 | ✓ 按钮 | ✓ 直接调 Agent |
 | 设备管理 (增删改) | ✓ 完整 | ✓ TOML 配置 |
 | 排序 | ✓ 上移/下移 | ✗ 按状态排序 |
+| 硬件性能监控 | ✗ | ✓ 通过 Agent stats 端点 |
 
 ---
 
@@ -65,6 +67,7 @@ OpenWrt LuCI 远程开机插件 + Windows 后台 Agent，同时为 [EasyTier](..
 │                                                                  │
 │  wol-agent.exe (Go, 端口 32249, nssm 服务化)                     │
 │  ├─ GET  /api/v1/status   → {"online":true,"hostname":"..."}    │
+│  ├─ GET  /api/v1/stats    → CPU/内存/磁盘/网络/GPU 硬件信息      │
 │  ├─ POST /api/v1/shutdown → shutdown /s /t 5                    │
 │  └─ POST /api/v1/reboot   → shutdown /r /t 5 (预留)             │
 └──────────────────────────────────────────────────────────────────┘
@@ -79,6 +82,7 @@ OpenWrt LuCI 远程开机插件 + Windows 后台 Agent，同时为 [EasyTier](..
 | 状态 | EasyTier | App httpGet → Agent HTTP (直连) | Agent |
 | 关机 | Luci Web | 路由器 curl → Agent HTTP | Agent |
 | 关机 | EasyTier | App httpPost → Agent HTTP (直连) | Agent |
+| 硬件监控 | EasyTier | App httpGet → Agent HTTP `/api/v1/stats` (直连) | Agent |
 
 ---
 
@@ -218,9 +222,9 @@ config macclient '<uuid>'
 
 ### 技术选型
 
-- **语言**：Go 1.21+
-- **依赖**：仅标准库 (`net/http`, `encoding/json`, `os/exec`)
-- **二进制大小**：~6MB (UPX 压缩 ~1.5MB)
+- **语言**：Go 1.23+
+- **依赖**：[gopsutil v4](https://github.com/shirou/gopsutil)（CPU/内存/磁盘/网络采集）、`wmic`（Windows 内置，GPU/网卡/SMBIOS 查询）
+- **二进制大小**：~6.4MB (UPX 压缩后更小)
 - **内存占用**：~3-5MB
 - **部署**：nssm 注册为 Windows Service，开机自启
 
@@ -230,20 +234,161 @@ config macclient '<uuid>'
 GET  /api/v1/status
   → 200 {"online":true,"hostname":"DESKTOP-ABC","os":"windows","uptime":3600}
 
+GET  /api/v1/stats
+  → 200 {"cpu":{...},"memory":{...},"gpus":[...],"disks":[...],"network":[...]}
+  → 实时硬件性能数据（CPU 型号/使用率、内存总量/DDR 类型/频率、GPU 型号/显存、
+       磁盘分区/读写速率、网卡硬件描述/流量）
+
 POST /api/v1/shutdown
   → 200 {"success":true,"action":"shutdown","delay":5,"message":"System will shutdown in 5 seconds"}
   → 执行 shutdown /s /t 5（5 秒延迟，用户可取消）
+
+POST /api/v1/reboot
+  → 预留，执行 shutdown /r /t 5
 ```
 
-### 构建与安装
+> `stats` 端点详细字段说明见 [EasyTier 电脑性能检测功能文档](../../EasyTier/docs/电脑性能检测功能.md#agent-api)。
+
+### 构建
 
 ```powershell
 cd wol-agent
-go build -ldflags="-s -w" -o wol-agent.exe
-# 管理员运行 install.bat
+go build -ldflags="-s -w" -o wol-agent.exe .
 ```
 
-`install.bat` 自动完成 nssm 服务注册、开机自启、立即启动。
+产物 `wol-agent.exe`（~6.4MB）。
+
+### 首次安装（NSSM Windows 服务）
+
+前提：安装 [NSSM](https://nssm.cc/download) 到 `D:\tools\nssm-2.24\win64\`。
+
+```batch
+:: 以管理员身份运行 install.bat
+install.bat
+```
+
+`install.bat` 内容：
+
+```batch
+nssm stop WolAgent >/dev/null 2>&1
+nssm remove WolAgent confirm >/dev/null 2>&1
+nssm install WolAgent "<path>\wol-agent.exe" --port 32249
+nssm set WolAgent AppDirectory "<path>"
+nssm set WolAgent Start SERVICE_AUTO_START
+nssm set WolAgent Description "Wake-on-LAN Agent - remote status check and shutdown"
+nssm start WolAgent
+```
+
+默认部署路径：`D:\tools\wolplus\wol-agent.exe`。
+
+### 已安装时替换更新（需管理员权限）
+
+旧版运行时目标 `.exe` 被进程锁定，直接覆盖会失败。正确流程：
+
+```powershell
+# 1. 停服务（需管理员）
+& "D:\tools\nssm-2.24\win64\nssm.exe" stop WolAgent
+
+# 2. 等待确认停止
+Start-Sleep -Seconds 4
+Get-Service WolAgent  # 确认 Status = Stopped
+
+# 3. 替换二进制文件
+Copy-Item -Force "新wol-agent.exe" "D:\tools\wolplus\wol-agent.exe"
+
+# 4. 启服务
+& "D:\tools\nssm-2.24\win64\nssm.exe" start WolAgent
+
+# 5. 验证新版生效
+Invoke-RestMethod -Uri http://localhost:32249/api/v1/stats -TimeoutSec 5
+```
+
+**常见失败原因**：
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| `Copy-Item` 报 "being used by another process" | 服务未完全停止 | 再等几秒后重试，或用 `taskkill /F /IM wol-agent.exe` 强杀 |
+| NSSM 报 "Can't open service! OpenService(): 拒绝访问" | 非管理员执行 | 用 `Start-Process powershell -Verb RunAs` 提权 |
+| 替换后 API 返回旧数据格式 | 旧进程未完全退出 | `Get-Process wol-agent` 确认旧 PID 已消失 |
+| `taskkill` "Access is denied" | 进程以 SYSTEM 账号运行 | 必须通过 NSSM 停服务，不能直接杀进程 |
+
+### 更新批量脚本（推荐）
+
+```powershell
+# update-agent.ps1 — 以管理员身份运行
+param([string]$NewBinary = ".\wol-agent.exe")
+
+$nssm = "D:\tools\nssm-2.24\win64\nssm.exe"
+$target = "D:\tools\wolplus\wol-agent.exe"
+
+Write-Host "1/4 停止服务..."
+& $nssm stop WolAgent 2>&1 | Out-Null
+Start-Sleep -Seconds 4
+
+Write-Host "2/4 替换二进制..."
+Copy-Item -Force $NewBinary $target
+
+Write-Host "3/4 启动服务..."
+& $nssm start WolAgent 2>&1 | Out-Null
+Start-Sleep -Seconds 3
+
+Write-Host "4/4 验证..."
+try {
+    $r = Invoke-RestMethod -Uri "http://localhost:32249/api/v1/stats" -TimeoutSec 5
+    Write-Host "CPU: $($r.cpu.model)" -ForegroundColor Green
+    Write-Host "Memory: $($r.memory.ddr_type) $($r.memory.speed_mhz)MHz" -ForegroundColor Green
+    Write-Host "OK" -ForegroundColor Green
+} catch {
+    Write-Host "FAILED: $_" -ForegroundColor Red
+}
+```
+
+### 更新验证清单
+
+部署后检查以下字段确认新版生效：
+
+| 字段 | 预期 | 未更新的表现 |
+|------|------|-------------|
+| `memory.ddr_type` | `"DDR4"` / `"DDR5"` 等 | 空字符串 |
+| `memory.speed_mhz` | 非 0 整数 | 0 |
+| `disks[].partitions[].name` | 无末尾 `:`（如 `"C"`） | `"C:"` |
+| `network[].desc` | 硬件描述（如 `"Realtek PCIe 2.5GbE Family Controller"`） | 空字符串 |
+
+### 依赖
+
+| 依赖 | 用途 |
+|------|------|
+| [gopsutil v4](https://github.com/shirou/gopsutil) | CPU / 内存 / 磁盘 / 网络信息采集 |
+| `wmic` (Windows 内置) | GPU 信息、网卡硬件描述、内存 SMBIOS 类型 |
+| WMI 关联类 (`Win32_DiskDriveToDiskPartition` 等) | 分区→物理磁盘映射 |
+
+### 项目文件
+
+```
+wol-agent/
+  main.go       — 全部 Go 源码（单文件）
+  go.mod / go.sum
+  install.bat   — NSSM 服务安装脚本
+  wol-agent.exe — 编译产物
+```
+
+### 疑难排查
+
+**服务启动后 API 不响应**：检查端口占用：
+
+```powershell
+netstat -ano | findstr :32249
+```
+
+如端口被旧实例占用，`taskkill /F /PID <PID>` 强杀后重启。
+
+**stats 返回空或异常**：手动请求验证：
+
+```powershell
+Invoke-RestMethod http://localhost:32249/api/v1/stats | ConvertTo-Json -Depth 5
+```
+
+Agent 日志通过 NSSM 重定向查看，或直接前台运行 `.\wol-agent.exe -port 32249` 观察输出。
 
 ---
 
@@ -258,6 +403,7 @@ EasyTier Android App 通过两种方式与 luci-app-wolplus 交互：
 | **唤醒** | HTTP GET → 路由器 CGI | `http://<router_ip>/cgi-bin/wolplus-api?action=wake&mac=...&iface=...` |
 | **状态** | HTTP GET → Agent 直连 | `http://<pc_ip>:<agent_port>/api/v1/status` (通过 SOCKS5 代理) |
 | **关机** | HTTP POST → Agent 直连 | `http://<pc_ip>:<agent_port>/api/v1/shutdown` (通过 SOCKS5 代理) |
+| **硬件监控** | HTTP GET → Agent 直连 | `http://<pc_ip>:<agent_port>/api/v1/stats` (通过 SOCKS5 代理) |
 
 ### CGI 端点 (`/cgi-bin/wolplus-api`)
 
@@ -478,6 +624,9 @@ opkg status luci-app-wolplus
 ```bash
 # 在线状态
 curl -s -m 2 http://<PC_IP>:32249/api/v1/status
+
+# 硬件性能监控
+curl -s -m 5 http://<PC_IP>:32249/api/v1/stats
 
 # 远程关机
 curl -s -m 5 -X POST http://<PC_IP>:32249/api/v1/shutdown
